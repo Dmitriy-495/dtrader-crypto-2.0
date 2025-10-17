@@ -10,44 +10,44 @@
  * Тиковые данные
  */
 export interface Tick {
-  symbol: string;           // Торговая пара (ETH_USDT)
-  price: number;            // Цена последней сделки
-  volume: number;           // Объем за 24 часа
-  timestamp: number;        // Временная метка (мс)
-  high24h: number;          // Максимум за 24 часа
-  low24h: number;           // Минимум за 24 часа
-  changePercent: number;    // Изменение цены в %
+  symbol: string; // Торговая пара (ETH_USDT)
+  price: number; // Цена последней сделки
+  volume: number; // Объем за 24 часа
+  timestamp: number; // Временная метка (мс)
+  high24h: number; // Максимум за 24 часа
+  low24h: number; // Минимум за 24 часа
+  changePercent: number; // Изменение цены в %
 }
 
 /**
  * Уровень в Order Book (цена и объем)
  */
 export interface OrderBookLevel {
-  price: number;            // Цена
-  amount: number;           // Объем
+  price: number; // Цена
+  amount: number; // Объем
 }
 
 /**
  * Order Book (книга ордеров)
  */
 export interface OrderBook {
-  symbol: string;           // Торговая пара
-  lastUpdateId: number;     // ID последнего обновления
-  bids: OrderBookLevel[];   // Заявки на покупку (отсортированы по убыванию цены)
-  asks: OrderBookLevel[];   // Заявки на продажу (отсортированы по возрастанию цены)
-  timestamp: number;        // Временная метка
+  symbol: string; // Торговая пара
+  lastUpdateId: number; // ID последнего обновления
+  bids: OrderBookLevel[]; // Заявки на покупку (отсортированы по убыванию цены)
+  asks: OrderBookLevel[]; // Заявки на продажу (отсортированы по возрастанию цены)
+  timestamp: number; // Временная метка
 }
 
 /**
  * Обновление Order Book от WebSocket
  */
 export interface OrderBookUpdate {
-  firstUpdateId: number;    // Первый ID обновления (U)
-  lastUpdateId: number;     // Последний ID обновления (u)
-  symbol: string;           // Торговая пара
-  bids: OrderBookLevel[];   // Обновления bids
-  asks: OrderBookLevel[];   // Обновления asks
-  timestamp: number;        // Временная метка
+  firstUpdateId: number; // Первый ID обновления (U)
+  lastUpdateId: number; // Последний ID обновления (u)
+  symbol: string; // Торговая пара
+  bids: OrderBookLevel[]; // Обновления bids
+  asks: OrderBookLevel[]; // Обновления asks
+  timestamp: number; // Временная метка
 }
 
 // ============================================================================
@@ -58,25 +58,25 @@ export interface OrderBookUpdate {
  * Уровень логирования
  */
 export enum LogLevel {
-  INFO = 'info',
-  WARN = 'warn',
-  ERROR = 'error',
-  DEBUG = 'debug',
-  SUCCESS = 'success'
+  INFO = "info",
+  WARN = "warn",
+  ERROR = "error",
+  DEBUG = "debug",
+  SUCCESS = "success",
 }
 
 /**
  * Тип сообщения для клиентов
  */
 export enum MessageType {
-  CONNECT = 'connect',
-  DISCONNECT = 'disconnect',
-  LOG = 'log',
-  TICK = 'tick',
-  ORDERBOOK = 'orderbook',
-  BALANCE = 'balance',
-  PING = 'ping',
-  PONG = 'pong'
+  CONNECT = "connect",
+  DISCONNECT = "disconnect",
+  LOG = "log",
+  TICK = "tick",
+  ORDERBOOK = "orderbook",
+  BALANCE = "balance",
+  PING = "ping",
+  PONG = "pong",
 }
 
 /**
@@ -170,28 +170,28 @@ export interface DisconnectMessage extends BaseMessage {
 /**
  * Объединенный тип всех сообщений
  */
-export type ClientMessage = 
-  | ConnectMessage 
-  | LogMessage 
-  | TickMessage 
-  | OrderBookMessage 
+export type ClientMessage =
+  | ConnectMessage
+  | LogMessage
+  | TickMessage
+  | OrderBookMessage
   | BalanceMessage
-  | PingMessage 
-  | PongMessage 
+  | PingMessage
+  | PongMessage
   | DisconnectMessage;
 
 /**
  * Свеча (Candlestick)
  */
 export interface Candle {
-  symbol: string;           // Торговая пара
-  timestamp: number;        // Время открытия свечи (мс)
-  open: number;             // Цена открытия
-  high: number;             // Максимальная цена
-  low: number;              // Минимальная цена
-  close: number;            // Цена закрытия
-  volume: number;           // Объем торгов
-  interval: string;         // Интервал (1m, 5m, 15m, 1h и т.д.)
+  symbol: string; // Торговая пара
+  timestamp: number; // Время открытия свечи (мс)
+  open: number; // Цена открытия
+  high: number; // Максимальная цена
+  low: number; // Минимальная цена
+  close: number; // Цена закрытия
+  volume: number; // Объем торгов
+  interval: string; // Интервал (1m, 5m, 15m, 1h и т.д.)
 }
 
 // ============================================================================
@@ -202,19 +202,19 @@ export interface Candle {
  * Тип торгового сигнала
  */
 export enum SignalType {
-  BUY = 'BUY',              // Покупка
-  SELL = 'SELL',            // Продажа
-  HOLD = 'HOLD'             // Удержание позиции
+  BUY = "BUY", // Покупка
+  SELL = "SELL", // Продажа
+  HOLD = "HOLD", // Удержание позиции
 }
 
 /**
  * Торговый сигнал от стратегии
  */
 export interface Signal {
-  type: SignalType;         // Тип сигнала
-  symbol: string;           // Торговая пара
-  price: number;            // Цена для исполнения
-  amount: number;           // Количество
-  timestamp: number;        // Время генерации сигнала
-  reason: string;           // Причина сигнала (для логирования)
+  type: SignalType; // Тип сигнала
+  symbol: string; // Торговая пара
+  price: number; // Цена для исполнения
+  amount: number; // Количество
+  timestamp: number; // Время генерации сигнала
+  reason: string; // Причина сигнала (для логирования)
 }

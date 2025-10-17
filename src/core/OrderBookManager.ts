@@ -5,6 +5,8 @@
 
 import { OrderBook, OrderBookLevel, OrderBookUpdate } from "../types";
 import { GateIO } from "../GateIO";
+import { LogBroadcaster } from "./LogBroadcaster";
+import { MessageType } from "../types";
 
 // ============================================================================
 // ТИПЫ И ИНТЕРФЕЙСЫ
