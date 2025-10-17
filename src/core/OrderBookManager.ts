@@ -298,22 +298,26 @@ export class OrderBookManager {
   /**
    * Рассчитать общий объем в USDT для asks (первые N уровней)
    */
-  getAsksVolume(levels: number = 20): number {
+  getAsksVolume(levels?: number): number {
     if (!this.orderBook) return 0;
 
+    const depth = levels !== undefined ? levels : this.config.depth;
+
     return this.orderBook.asks
-      .slice(0, levels)
+      .slice(0, depth)
       .reduce((sum, ask) => sum + ask.price * ask.amount, 0);
   }
 
   /**
    * Рассчитать общий объем в USDT для bids (первые N уровней)
    */
-  getBidsVolume(levels: number = 20): number {
+  getBidsVolume(levels?: number): number {
     if (!this.orderBook) return 0;
 
+    const depth = levels !== undefined ? levels : this.config.depth;
+
     return this.orderBook.bids
-      .slice(0, levels)
+      .slice(0, depth)
       .reduce((sum, bid) => sum + bid.price * bid.amount, 0);
   }
 
@@ -321,7 +325,7 @@ export class OrderBookManager {
    * Получить соотношение объемов asks/bids в процентах
    */
   getVolumeRatio(
-    levels: number = 20
+    levels?: number
   ): {
     askVolume: number;
     bidVolume: number;
@@ -330,8 +334,10 @@ export class OrderBookManager {
   } | null {
     if (!this.orderBook) return null;
 
-    const askVolume = this.getAsksVolume(levels);
-    const bidVolume = this.getBidsVolume(levels);
+    const depth = levels !== undefined ? levels : this.config.depth;
+
+    const askVolume = this.getAsksVolume(depth);
+    const bidVolume = this.getBidsVolume(depth);
     const totalVolume = askVolume + bidVolume;
 
     if (totalVolume === 0) return null;
@@ -356,7 +362,7 @@ export class OrderBookManager {
   // ==========================================================================
 
   /**
-   * Вывести Order Book в консоль
+   * Вывести Order Book в консоль (компактный формат с объемами)
    */
   displayOrderBook(): void {
     if (!this.orderBook) {
@@ -364,45 +370,23 @@ export class OrderBookManager {
       return;
     }
 
-    console.log("\n" + "=".repeat(70));
+    const ratio = this.getVolumeRatio(); // Используем глубину из config
+    if (!ratio) {
+      console.log("📖 Order Book: недостаточно данных");
+      return;
+    }
+
+    const timeISO = new Date(this.orderBook.timestamp).toISOString();
+
     console.log(
-      `📖 ORDER BOOK ${this.orderBook.symbol} (ID: ${this.orderBook.lastUpdateId})`
+      `📖 ${this.orderBook.symbol} [${timeISO}] | ` +
+        `ASK ${ratio.askVolume
+          .toFixed(2)
+          .padStart(12)} USDT (${ratio.askPercent.toFixed(1)}%) | ` +
+        `BID ${ratio.bidVolume
+          .toFixed(2)
+          .padStart(12)} USDT (${ratio.bidPercent.toFixed(1)}%)`
     );
-    console.log("=".repeat(70));
-
-    // Asks (продажа) - выводим в обратном порядке
-    console.log("🔴 ASKS (Продажа):");
-    [...this.orderBook.asks]
-      .reverse()
-      .slice(0, 5)
-      .forEach((ask) => {
-        console.log(
-          `   ${ask.price.toFixed(2).padStart(10)} | ${ask.amount
-            .toFixed(4)
-            .padStart(12)}`
-        );
-      });
-
-    // Спред
-    const spread = this.getSpread();
-    const midPrice = this.getMidPrice();
-    console.log("   " + "-".repeat(30));
-    console.log(
-      `   Спред: ${spread?.toFixed(2)} | Mid: ${midPrice?.toFixed(2)}`
-    );
-    console.log("   " + "-".repeat(30));
-
-    // Bids (покупка)
-    console.log("🟢 BIDS (Покупка):");
-    this.orderBook.bids.slice(0, 5).forEach((bid) => {
-      console.log(
-        `   ${bid.price.toFixed(2).padStart(10)} | ${bid.amount
-          .toFixed(4)
-          .padStart(12)}`
-      );
-    });
-
-    console.log("=".repeat(70) + "\n");
   }
 
   /**
