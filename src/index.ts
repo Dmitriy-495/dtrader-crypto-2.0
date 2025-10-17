@@ -6,6 +6,8 @@
 import * as dotenv from "dotenv";
 import { GateIO, SpotBalance } from "./GateIO";
 import { DTrader } from "./DTrader";
+import { LogBroadcaster } from "./core/LogBroadcaster";
+import { Logger } from "./core/Logger";
 
 // ============================================================================
 // ЗАГРУЗКА ПЕРЕМЕННЫХ ОКРУЖЕНИЯ
@@ -26,6 +28,10 @@ const PING_INTERVAL = parseInt(process.env.PING_INTERVAL || "15") * 1000;
 // Order Book конфигурация
 const ORDER_BOOK_SYMBOL = process.env.ORDER_BOOK_SYMBOL || "ETH_USDT";
 const ORDER_BOOK_DEPTH = parseInt(process.env.ORDER_BOOK_DEPTH || "20");
+
+// Log Broadcasting конфигурация
+const LOG_BROADCAST_ENABLED = process.env.LOG_BROADCAST_ENABLED === "true";
+const LOG_BROADCAST_PORT = parseInt(process.env.LOG_BROADCAST_PORT || "8080");
 
 if (!GATE_API_KEY || !GATE_API_SECRET) {
   console.error(
@@ -99,6 +105,25 @@ async function main(): Promise<void> {
   console.log(`📍 Ping интервал: ${PING_INTERVAL / 1000}с`);
 
   try {
+    // Инициализируем LogBroadcaster и Logger
+    let logBroadcaster: LogBroadcaster | undefined;
+    let logger: Logger | undefined;
+
+    if (LOG_BROADCAST_ENABLED) {
+      logBroadcaster = new LogBroadcaster({
+        port: LOG_BROADCAST_PORT,
+        enabled: LOG_BROADCAST_ENABLED,
+      });
+
+      logger = new Logger();
+
+      // Запускаем LogBroadcaster
+      logBroadcaster.start();
+
+      // Запускаем перехват console
+      logger.startIntercepting();
+    }
+
     // Создаем экземпляр класса GateIO для REST API
     const gateio = new GateIO({
       apiKey: GATE_API_KEY!,
@@ -120,13 +145,15 @@ async function main(): Promise<void> {
       process.exit(1);
     }
 
-    // Создаем экземпляр движка с Order Book
+    // Создаем экземпляр движка с Order Book и Log Broadcasting
     const dtrader = new DTrader({
       gateio: gateio,
       wsUrl: GATE_WS_URL,
       pingInterval: PING_INTERVAL,
-      orderBookSymbol: "ETH_USDT", // Включаем Order Book для ETH/USDT
-      orderBookDepth: 10, // Глубина 10 уровней
+      orderBookSymbol: ORDER_BOOK_SYMBOL,
+      orderBookDepth: ORDER_BOOK_DEPTH,
+      logBroadcaster: logBroadcaster,
+      logger: logger,
     });
 
     // Запускаем движок

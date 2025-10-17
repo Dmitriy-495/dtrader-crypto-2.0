@@ -6,6 +6,8 @@
 import WebSocket from "ws";
 import { GateIO } from "./GateIO";
 import { OrderBookManager } from "./core/OrderBookManager";
+import { LogBroadcaster } from "./core/LogBroadcaster";
+import { Logger } from "./core/Logger";
 
 // ============================================================================
 // ТИПЫ И ИНТЕРФЕЙСЫ
@@ -20,6 +22,8 @@ export interface DTraderConfig {
   pingInterval?: number; // Интервал ping в миллисекундах (по умолчанию 15 секунд)
   orderBookSymbol?: string; // Символ для Order Book (опционально)
   orderBookDepth?: number; // Глубина Order Book (опционально)
+  logBroadcaster?: LogBroadcaster; // LogBroadcaster для трансляции логов (опционально)
+  logger?: Logger; // Logger для перехвата console (опционально)
 }
 
 /**
@@ -51,6 +55,10 @@ export class DTrader {
   // Order Book Manager
   private orderBookManager: OrderBookManager | null = null;
 
+  // Log Broadcasting
+  private logBroadcaster: LogBroadcaster | null = null;
+  private logger: Logger | null = null;
+
   /**
    * Конструктор движка
    * @param config - Конфигурация
@@ -67,6 +75,15 @@ export class DTrader {
         depth: config.orderBookDepth || 10,
         gateio: this.gateio,
       });
+    }
+
+    // Инициализируем LogBroadcaster и Logger
+    this.logBroadcaster = config.logBroadcaster || null;
+    this.logger = config.logger || null;
+
+    // Связываем Logger с LogBroadcaster
+    if (this.logger && this.logBroadcaster) {
+      this.logger.setBroadcaster(this.logBroadcaster);
     }
   }
 
@@ -143,6 +160,16 @@ export class DTrader {
     if (this.ws) {
       this.ws.close();
       this.ws = null;
+    }
+
+    // Останавливаем LogBroadcaster если есть
+    if (this.logBroadcaster) {
+      this.logBroadcaster.stop();
+    }
+
+    // Останавливаем Logger если есть
+    if (this.logger) {
+      this.logger.stopIntercepting();
     }
 
     this.state = EngineState.STOPPED;
@@ -374,9 +401,9 @@ export class DTrader {
     if (message.event === "update" && message.result && this.orderBookManager) {
       this.orderBookManager.processUpdate(message.result);
 
-      // Периодически выводим Order Book (каждое 10-е обновление)
+      // Выводим Order Book каждое 50-е обновление
       const updateId = message.result.u;
-      if (updateId % 10 === 0) {
+      if (updateId % 50 === 0) {
         this.orderBookManager.displayOrderBook();
       }
     }
