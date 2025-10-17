@@ -19,6 +19,7 @@ export interface OrderBookManagerConfig {
   symbol: string; // Торговая пара (ETH_USDT)
   depth: number; // Глубина order book (10, 20, 50, 100)
   gateio: GateIO; // Экземпляр GateIO для REST запросов
+  logBroadcaster?: LogBroadcaster; // LogBroadcaster для трансляции данных (опционально)
 }
 
 /**
@@ -39,12 +40,14 @@ export class OrderBookManager {
   private orderBook: OrderBook | null = null;
   private updateCache: OrderBookUpdate[] = [];
   private syncState: SyncState = SyncState.NOT_INITIALIZED;
+  private logBroadcaster: LogBroadcaster | null = null;
 
   /**
    * Конструктор
    */
   constructor(config: OrderBookManagerConfig) {
     this.config = config;
+    this.logBroadcaster = config.logBroadcaster || null;
     console.log(
       `📖 OrderBookManager создан для ${config.symbol} (глубина: ${config.depth})`
     );
@@ -380,15 +383,36 @@ export class OrderBookManager {
 
     const timeISO = new Date(this.orderBook.timestamp).toISOString();
 
-    console.log(
+    const logMessage =
       `📖 ${this.orderBook.symbol} [${timeISO}] | ` +
-        `ASK ${ratio.askVolume
-          .toFixed(2)
-          .padStart(12)} USDT (${ratio.askPercent.toFixed(1)}%) | ` +
-        `BID ${ratio.bidVolume
-          .toFixed(2)
-          .padStart(12)} USDT (${ratio.bidPercent.toFixed(1)}%)`
-    );
+      `ASK ${ratio.askVolume
+        .toFixed(2)
+        .padStart(12)} USDT (${ratio.askPercent.toFixed(1)}%) | ` +
+      `BID ${ratio.bidVolume
+        .toFixed(2)
+        .padStart(12)} USDT (${ratio.bidPercent.toFixed(1)}%)`;
+
+    console.log(logMessage);
+
+    // Отправляем данные Order Book клиентам через LogBroadcaster
+    if (this.logBroadcaster && this.logBroadcaster.isActive()) {
+      const spread = this.getSpread();
+      const midPrice = this.getMidPrice();
+
+      this.logBroadcaster.broadcast({
+        type: MessageType.ORDERBOOK,
+        symbol: this.orderBook.symbol,
+        data: {
+          askVolume: ratio.askVolume,
+          bidVolume: ratio.bidVolume,
+          askPercent: ratio.askPercent,
+          bidPercent: ratio.bidPercent,
+          spread: spread || undefined,
+          midPrice: midPrice || undefined,
+        },
+        timestamp: this.orderBook.timestamp,
+      });
+    }
   }
 
   /**

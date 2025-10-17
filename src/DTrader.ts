@@ -8,6 +8,7 @@ import { GateIO } from "./GateIO";
 import { OrderBookManager } from "./core/OrderBookManager";
 import { LogBroadcaster } from "./core/LogBroadcaster";
 import { Logger } from "./core/Logger";
+import { MessageType } from "./types";
 
 // ============================================================================
 // ТИПЫ И ИНТЕРФЕЙСЫ
@@ -22,6 +23,8 @@ export interface DTraderConfig {
   pingInterval?: number; // Интервал ping в миллисекундах (по умолчанию 15 секунд)
   orderBookSymbol?: string; // Символ для Order Book (опционально)
   orderBookDepth?: number; // Глубина Order Book (опционально)
+  logBroadcaster?: LogBroadcaster; // LogBroadcaster для трансляции логов (опционально)
+  logger?: Logger; // Logger для перехвата console (опционально)
 }
 
 /**
@@ -53,6 +56,10 @@ export class DTrader {
   // Order Book Manager
   private orderBookManager: OrderBookManager | null = null;
 
+  // Log Broadcasting
+  private logBroadcaster: LogBroadcaster | null = null;
+  private logger: Logger | null = null;
+
   /**
    * Конструктор движка
    * @param config - Конфигурация
@@ -62,12 +69,22 @@ export class DTrader {
     this.wsUrl = config.wsUrl || "wss://api.gateio.ws/ws/v4/";
     this.pingInterval = config.pingInterval || 15000; // 15 секунд по умолчанию
 
+    // Инициализируем LogBroadcaster и Logger
+    this.logBroadcaster = config.logBroadcaster || null;
+    this.logger = config.logger || null;
+
+    // Связываем Logger с LogBroadcaster
+    if (this.logger && this.logBroadcaster) {
+      this.logger.setBroadcaster(this.logBroadcaster);
+    }
+
     // Инициализируем OrderBookManager если указан символ
     if (config.orderBookSymbol) {
       this.orderBookManager = new OrderBookManager({
         symbol: config.orderBookSymbol,
         depth: config.orderBookDepth || 10,
         gateio: this.gateio,
+        logBroadcaster: this.logBroadcaster || undefined, // Передаем LogBroadcaster
       });
     }
   }
@@ -145,6 +162,16 @@ export class DTrader {
     if (this.ws) {
       this.ws.close();
       this.ws = null;
+    }
+
+    // Останавливаем LogBroadcaster если есть
+    if (this.logBroadcaster) {
+      this.logBroadcaster.stop();
+    }
+
+    // Останавливаем Logger если есть
+    if (this.logger) {
+      this.logger.stopIntercepting();
     }
 
     this.state = EngineState.STOPPED;
@@ -349,12 +376,26 @@ export class DTrader {
     // Обрабатываем обновление тикера
     if (message.event === "update" && message.result) {
       const ticker = message.result;
-      const price = parseFloat(ticker.last).toFixed(2);
+      const price = parseFloat(ticker.last);
+      const volume = parseFloat(ticker.base_volume);
       const timeISO = new Date().toISOString();
 
       console.log(
-        `📊 Тикер ${ticker.currency_pair} [${timeISO}]: ${price} USDT`
+        `📊 Тикер ${ticker.currency_pair} [${timeISO}]: ${price.toFixed(
+          2
+        )} USDT`
       );
+
+      // Отправляем тик клиентам через LogBroadcaster
+      if (this.logBroadcaster && this.logBroadcaster.isActive()) {
+        this.logBroadcaster.broadcast({
+          type: MessageType.TICK,
+          symbol: ticker.currency_pair,
+          price: price,
+          volume: volume,
+          timestamp: Date.now(),
+        });
+      }
     }
   }
 
