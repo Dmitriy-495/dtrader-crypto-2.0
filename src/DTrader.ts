@@ -3,12 +3,17 @@
  * Управляет WebSocket подключением и основным циклом работы
  */
 
-import WebSocket from 'ws';
-import { GateIO } from './GateIO';
-import { OrderBookManager } from './core/OrderBookManager';
-import { BroadcastManager } from './core/BroadcastManager';
-import { Logger } from './core/Logger';
-import { MessageType } from './types';
+import WebSocket from "ws";
+import { GateIO } from "./GateIO";
+import { OrderBookManager } from "./core/OrderBookManager";
+import { BroadcastManager } from "./core/BroadcastManager";
+import { Logger } from "./core/Logger";
+import { TickSpeedIndicator } from "./indicators/TickSpeedIndicator";
+import {
+  OrderBookPressureIndicator,
+  OrderBookPressureResult,
+} from "./indicators/OrderBookPressureIndicator";
+import { MessageType } from "./types";
 
 // ============================================================================
 // ТИПЫ И ИНТЕРФЕЙСЫ
@@ -18,23 +23,23 @@ import { MessageType } from './types';
  * Конфигурация движка
  */
 export interface DTraderConfig {
-  gateio: GateIO;                 // Экземпляр класса для работы с Gate.io REST API
-  wsUrl?: string;                 // URL для WebSocket подключения
-  pingInterval?: number;          // Интервал ping в миллисекундах (по умолчанию 15 секунд)
-  orderBookSymbol?: string;       // Символ для Order Book (опционально)
-  orderBookDepth?: number;        // Глубина Order Book (опционально)
-  broadcastManager?: BroadcastManager; // BroadcastManager для трансляции данных (опционально)
-  logger?: Logger;                // Logger для перехвата console (опционально)
+  gateio: GateIO;
+  wsUrl?: string;
+  pingInterval?: number;
+  orderBookSymbol?: string;
+  orderBookDepth?: number;
+  broadcastManager?: BroadcastManager;
+  logger?: Logger;
 }
 
 /**
  * Состояние движка
  */
 enum EngineState {
-  STOPPED = 'STOPPED',
-  STARTING = 'STARTING',
-  RUNNING = 'RUNNING',
-  STOPPING = 'STOPPING'
+  STOPPED = "STOPPED",
+  STARTING = "STARTING",
+  RUNNING = "RUNNING",
+  STOPPING = "STOPPING",
 }
 
 // ============================================================================
@@ -52,136 +57,127 @@ export class DTrader {
   private lastPingSentTime: number = 0;
   private connectionStartTime: number = 0;
   private state: EngineState = EngineState.STOPPED;
-  
+
   // Order Book Manager
   private orderBookManager: OrderBookManager | null = null;
-  
+
   // Broadcast Manager
   private broadcastManager: BroadcastManager | null = null;
   private logger: Logger | null = null;
 
-  /**
-   * Конструктор движка
-   * @param config - Конфигурация
-   */
+  // ✅ ИНДИКАТОРЫ
+  private tickSpeedIndicator: TickSpeedIndicator;
+  private obPressureIndicator: OrderBookPressureIndicator;
+  private previousOBPressure: OrderBookPressureResult | null = null;
+  private tickCounter: number = 0;
+  private obUpdateCounter: number = 0;
+
   constructor(config: DTraderConfig) {
     this.gateio = config.gateio;
-    this.wsUrl = config.wsUrl || 'wss://api.gateio.ws/ws/v4/';
-    this.pingInterval = config.pingInterval || 15000; // 15 секунд по умолчанию
-    
-    // Инициализируем BroadcastManager и Logger
+    this.wsUrl = config.wsUrl || "wss://api.gateio.ws/ws/v4/";
+    this.pingInterval = config.pingInterval || 15000;
+
     this.broadcastManager = config.broadcastManager || null;
     this.logger = config.logger || null;
-    
-    // Связываем Logger с BroadcastManager
+
     if (this.logger && this.broadcastManager) {
       this.logger.setBroadcaster(this.broadcastManager);
     }
-    
-    // Инициализируем OrderBookManager если указан символ
+
     if (config.orderBookSymbol) {
       this.orderBookManager = new OrderBookManager({
         symbol: config.orderBookSymbol,
         depth: config.orderBookDepth || 10,
         gateio: this.gateio,
-        broadcastManager: this.broadcastManager || undefined // Передаем BroadcastManager
+        broadcastManager: this.broadcastManager || undefined,
       });
     }
+
+    // ✅ Инициализируем индикаторы
+    this.tickSpeedIndicator = new TickSpeedIndicator({
+      windowMinutes: 1,
+      alertThresholds: {
+        low: 20,
+        normal: 100,
+        high: 300,
+        extreme: 600,
+      },
+    });
+
+    this.obPressureIndicator = new OrderBookPressureIndicator({
+      depthLevels: 10,
+      weightedMode: true,
+    });
+
+    console.log("✅ Индикаторы инициализированы: TickSpeed, OrderBookPressure");
   }
 
   // ==========================================================================
   // УПРАВЛЕНИЕ ЖИЗНЕННЫМ ЦИКЛОМ
   // ==========================================================================
 
-  /**
-   * Запускает движок
-   */
   async start(): Promise<void> {
     if (this.state !== EngineState.STOPPED) {
-      console.log('⚠️  Движок уже запущен или запускается');
+      console.log("⚠️  Движок уже запущен или запускается");
       return;
     }
 
     this.state = EngineState.STARTING;
-    console.log('\n🚀 Запуск движка dtrader...');
-    
+    console.log("\n🚀 Запуск движка dtrader...");
+
     try {
-      // Подключаемся к WebSocket
       await this.connectWebSocket();
-      
-      // Запускаем ping-pong механизм
       this.startPingPong();
-      
-      // Подписываемся на обновления балансов
       this.subscribeToBalances();
-      
-      // Подписываемся на тики для торговой пары
       this.subscribeToTicker();
-      
-      // Если есть OrderBookManager, подписываемся на обновления Order Book
+
       if (this.orderBookManager) {
         this.subscribeToOrderBookUpdates();
-        
-        // Ждем немного чтобы начать получать обновления
         await this.sleep(500);
-        
-        // Инициализируем Order Book
         await this.orderBookManager.initialize();
       }
-      
+
       this.state = EngineState.RUNNING;
-      console.log('✅ Движок успешно запущен и работает\n');
-      
+      console.log("✅ Движок успешно запущен и работает\n");
     } catch (error: any) {
       this.state = EngineState.STOPPED;
       throw new Error(`Ошибка запуска движка: ${error.message}`);
     }
   }
 
-  /**
-   * Останавливает движок
-   */
   async stop(): Promise<void> {
     if (this.state !== EngineState.RUNNING) {
-      console.log('⚠️  Движок не запущен');
+      console.log("⚠️  Движок не запущен");
       return;
     }
 
     this.state = EngineState.STOPPING;
-    console.log('\n🛑 Остановка движка...');
+    console.log("\n🛑 Остановка движка...");
 
-    // Останавливаем ping-pong
     this.stopPingPong();
 
-    // Очищаем таймер контроля pong
     if (this.pongTimeout) {
       clearTimeout(this.pongTimeout);
       this.pongTimeout = null;
     }
 
-    // Закрываем WebSocket соединение
     if (this.ws) {
       this.ws.close();
       this.ws = null;
     }
 
-    // Останавливаем BroadcastManager если есть
     if (this.broadcastManager) {
       this.broadcastManager.stop();
     }
-    
-    // Останавливаем Logger если есть
+
     if (this.logger) {
       this.logger.stopIntercepting();
     }
 
     this.state = EngineState.STOPPED;
-    console.log('✅ Движок остановлен\n');
+    console.log("✅ Движок остановлен\n");
   }
 
-  /**
-   * Возвращает текущее состояние движка
-   */
   getState(): string {
     return this.state;
   }
@@ -190,9 +186,6 @@ export class DTrader {
   // WEBSOCKET
   // ==========================================================================
 
-  /**
-   * Устанавливает WebSocket подключение к Gate.io
-   */
   private connectWebSocket(): Promise<void> {
     return new Promise((resolve, reject) => {
       console.log(`📡 Подключение к WebSocket: ${this.wsUrl}`);
@@ -200,31 +193,30 @@ export class DTrader {
       try {
         this.ws = new WebSocket(this.wsUrl);
 
-        // Обработчик открытия соединения
-        this.ws.on('open', () => {
+        this.ws.on("open", () => {
           this.connectionStartTime = Date.now();
-          console.log('✅ WebSocket соединение установлено');
+          console.log("✅ WebSocket соединение установлено");
           resolve();
         });
 
-        // Обработчик входящих сообщений
-        this.ws.on('message', (data: WebSocket.Data) => {
+        this.ws.on("message", (data: WebSocket.Data) => {
           this.handleWebSocketMessage(data);
         });
 
-        // Обработчик ошибок
-        this.ws.on('error', (error: Error) => {
-          console.error('❌ WebSocket ошибка:', error.message);
+        this.ws.on("error", (error: Error) => {
+          console.error("❌ WebSocket ошибка:", error.message);
           reject(error);
         });
 
-        // Обработчик закрытия соединения
-        this.ws.on('close', (code: number, reason: string) => {
-          console.log(`🔌 WebSocket соединение закрыто. Код: ${code}, Причина: ${reason || 'не указана'}`);
-          
-          // Если соединение закрылось во время работы, пытаемся переподключиться
+        this.ws.on("close", (code: number, reason: string) => {
+          console.log(
+            `🔌 WebSocket соединение закрыто. Код: ${code}, Причина: ${
+              reason || "не указана"
+            }`
+          );
+
           if (this.state === EngineState.RUNNING) {
-            console.log('🔄 Попытка переподключения через 5 секунд...');
+            console.log("🔄 Попытка переподключения через 5 секунд...");
             setTimeout(() => {
               if (this.state === EngineState.RUNNING) {
                 this.reconnectWebSocket();
@@ -232,40 +224,35 @@ export class DTrader {
             }, 5000);
           }
         });
-
       } catch (error: any) {
         reject(error);
       }
     });
   }
 
-  /**
-   * Переподключение к WebSocket
-   */
   private async reconnectWebSocket(): Promise<void> {
-    const uptime = this.connectionStartTime 
+    const uptime = this.connectionStartTime
       ? Math.floor((Date.now() - this.connectionStartTime) / 1000)
       : 0;
-    console.log(`🔄 Переподключение к WebSocket... (предыдущее соединение работало ${uptime}с)`);
-    
-    // Очищаем старое соединение
+    console.log(
+      `🔄 Переподключение к WebSocket... (предыдущее соединение работало ${uptime}с)`
+    );
+
     if (this.ws) {
       this.ws.removeAllListeners();
       this.ws = null;
     }
-    
+
     try {
       await this.connectWebSocket();
-      console.log('✅ Переподключение успешно');
-      
-      // После переподключения нужно заново подписаться
+      console.log("✅ Переподключение успешно");
+
       this.subscribeToBalances();
       this.subscribeToTicker();
-      
     } catch (error: any) {
-      console.error('❌ Ошибка переподключения:', error.message);
-      console.log('🔄 Повторная попытка через 5 секунд...');
-      
+      console.error("❌ Ошибка переподключения:", error.message);
+      console.log("🔄 Повторная попытка через 5 секунд...");
+
       setTimeout(() => {
         if (this.state === EngineState.RUNNING) {
           this.reconnectWebSocket();
@@ -274,145 +261,164 @@ export class DTrader {
     }
   }
 
-  /**
-   * Обрабатывает входящие сообщения от WebSocket
-   */
   private handleWebSocketMessage(data: WebSocket.Data): void {
     try {
       const message = JSON.parse(data.toString());
       const receivedTime = Date.now();
       const timeISO = new Date(receivedTime).toISOString();
-      
-      // Обрабатываем pong ответ
-      if (message.channel === 'spot.pong') {
+
+      if (message.channel === "spot.pong") {
         this.lastPongTime = receivedTime;
-        
-        // Вычисляем задержку
         const latency = receivedTime - this.lastPingSentTime;
-        
         console.log(`🏓 PONG получен [${timeISO}] задержка: ${latency}ms`);
-        
-        // Сбрасываем таймер контроля pong
+
         if (this.pongTimeout) {
           clearTimeout(this.pongTimeout);
           this.pongTimeout = null;
         }
-        
         return;
       }
-      
-      // Обрабатываем обновления балансов
-      if (message.channel === 'spot.balances') {
+
+      if (message.channel === "spot.balances") {
         this.handleBalanceUpdate(message);
         return;
       }
-      
-      // Обрабатываем тиковые данные
-      if (message.channel === 'spot.tickers') {
+
+      if (message.channel === "spot.tickers") {
         this.handleTickerUpdate(message);
         return;
       }
-      
-      // Обрабатываем обновления Order Book
-      if (message.channel === 'spot.order_book_update') {
+
+      if (message.channel === "spot.order_book_update") {
         this.handleOrderBookUpdate(message);
         return;
       }
-      
-      // Здесь в будущем будет обработка других типов сообщений
-      
     } catch (error: any) {
-      console.error('❌ Ошибка парсинга WebSocket сообщения:', error.message);
+      console.error("❌ Ошибка парсинга WebSocket сообщения:", error.message);
     }
   }
 
-  /**
-   * Обрабатывает обновление балансов
-   */
   private handleBalanceUpdate(message: any): void {
-    // Проверяем статус подписки
-    if (message.event === 'subscribe') {
+    if (message.event === "subscribe") {
       if (message.error) {
-        console.error('❌ Ошибка подписки на балансы:', message.error);
+        console.error("❌ Ошибка подписки на балансы:", message.error);
       } else {
-        console.log('✅ Успешная подписка на обновления балансов');
+        console.log("✅ Успешная подписка на обновления балансов");
       }
       return;
     }
-    
-    // Обрабатываем обновление данных
-    if (message.event === 'update' && message.result) {
-      console.log('\n💰 Обновление баланса:');
+
+    if (message.event === "update" && message.result) {
+      console.log("\n💰 Обновление баланса:");
       message.result.forEach((balance: any) => {
         const currency = balance.currency;
         const available = parseFloat(balance.available).toFixed(8);
         const locked = parseFloat(balance.freeze).toFixed(8);
         const change = balance.change;
-        
-        console.log(`   ${currency}: доступно ${available}, заблокировано ${locked}, изменение: ${change}`);
+
+        console.log(
+          `   ${currency}: доступно ${available}, заблокировано ${locked}, изменение: ${change}`
+        );
       });
-      console.log('');
+      console.log("");
+
+      // ✅ Транслируем балансы клиентам
+      if (this.broadcastManager && this.broadcastManager.isActive()) {
+        const balances = message.result.map((balance: any) => ({
+          currency: balance.currency,
+          available: parseFloat(balance.available),
+          locked: parseFloat(balance.freeze),
+        }));
+
+        this.broadcastManager.broadcast({
+          type: MessageType.BALANCE,
+          balances,
+          timestamp: Date.now(),
+        });
+      }
     }
   }
 
-  /**
-   * Обрабатывает обновление тикера
-   */
   private handleTickerUpdate(message: any): void {
-    // Проверяем статус подписки
-    if (message.event === 'subscribe') {
+    if (message.event === "subscribe") {
       if (message.error) {
-        console.error('❌ Ошибка подписки на тикер:', message.error);
+        console.error("❌ Ошибка подписки на тикер:", message.error);
       } else {
-        console.log('✅ Успешная подписка на тикер ETH_USDT');
+        console.log("✅ Успешная подписка на тикер ETH_USDT");
       }
       return;
     }
-    
-    // Обрабатываем обновление тикера
-    if (message.event === 'update' && message.result) {
+
+    if (message.event === "update" && message.result) {
       const ticker = message.result;
       const price = parseFloat(ticker.last);
       const volume = parseFloat(ticker.base_volume);
-      const timeISO = new Date().toISOString();
-      
-      console.log(`📊 Тикер ${ticker.currency_pair} [${timeISO}]: ${price.toFixed(2)} USDT`);
-      
-      // Отправляем тик клиентам через BroadcastManager
+
+      // Регистрируем тик в индикаторе
+      this.tickSpeedIndicator.addTick(Date.now());
+      this.tickCounter++;
+
+      // Каждые 20 тиков рассчитываем и транслируем скорость
+      if (this.tickCounter % 20 === 0) {
+        const tickSpeed = this.tickSpeedIndicator.calculate();
+
+        // Транслируем индикатор клиентам
+        if (this.broadcastManager && this.broadcastManager.isActive()) {
+          this.broadcastManager.broadcast({
+            type: MessageType.INDICATOR,
+            name: "tick_speed",
+            data: tickSpeed,
+            timestamp: Date.now(),
+          });
+        }
+      }
+
+      // Отправляем тик клиентам
       if (this.broadcastManager && this.broadcastManager.isActive()) {
         this.broadcastManager.broadcast({
           type: MessageType.TICK,
           symbol: ticker.currency_pair,
           price: price,
           volume: volume,
-          timestamp: Date.now()
+          timestamp: Date.now(),
         });
       }
     }
   }
 
-  /**
-   * Обрабатывает обновление Order Book
-   */
   private handleOrderBookUpdate(message: any): void {
-    // Проверяем статус подписки
-    if (message.event === 'subscribe') {
+    if (message.event === "subscribe") {
       if (message.error) {
-        console.error('❌ Ошибка подписки на Order Book:', message.error);
+        console.error("❌ Ошибка подписки на Order Book:", message.error);
       } else {
         console.log(`✅ Успешная подписка на обновления Order Book`);
       }
       return;
     }
 
-    // Обрабатываем обновление Order Book
-    if (message.event === 'update' && message.result && this.orderBookManager) {
+    if (message.event === "update" && message.result && this.orderBookManager) {
       this.orderBookManager.processUpdate(message.result);
-      
-      // Выводим Order Book каждое 50-е обновление
-      const updateId = message.result.u;
-      if (updateId % 50 === 0) {
-        this.orderBookManager.displayOrderBook();
+
+      this.obUpdateCounter++;
+
+      // Каждое 50-е обновление рассчитываем давление
+      if (this.obUpdateCounter % 50 === 0) {
+        const orderBook = this.orderBookManager.getOrderBook();
+        if (orderBook) {
+          const pressure = this.obPressureIndicator.calculate(orderBook);
+
+          // Транслируем индикатор клиентам
+          if (this.broadcastManager && this.broadcastManager.isActive()) {
+            this.broadcastManager.broadcast({
+              type: MessageType.INDICATOR,
+              name: "orderbook_pressure",
+              data: pressure,
+              timestamp: Date.now(),
+            });
+          }
+
+          this.previousOBPressure = pressure;
+        }
       }
     }
   }
@@ -421,71 +427,60 @@ export class DTrader {
   // PING-PONG МЕХАНИЗМ
   // ==========================================================================
 
-  /**
-   * Запускает периодическую отправку ping сообщений
-   */
   private startPingPong(): void {
-    console.log(`🏓 Запуск ping-pong с интервалом ${this.pingInterval / 1000} секунд`);
-    
-    // Отправляем первый ping сразу
+    console.log(
+      `🏓 Запуск ping-pong с интервалом ${this.pingInterval / 1000} секунд`
+    );
     this.sendPing();
-    
-    // Устанавливаем таймер для периодической отправки
     this.pingTimer = setInterval(() => {
       this.sendPing();
     }, this.pingInterval);
   }
 
-  /**
-   * Останавливает ping-pong механизм
-   */
   private stopPingPong(): void {
     if (this.pingTimer) {
       clearInterval(this.pingTimer);
       this.pingTimer = null;
-      console.log('🏓 Ping-pong остановлен');
+      console.log("🏓 Ping-pong остановлен");
     }
   }
 
-  /**
-   * Отправляет ping сообщение на сервер
-   */
   private sendPing(): void {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-      console.log('⚠️  WebSocket не подключен, пропускаем ping');
+      console.log("⚠️  WebSocket не подключен, пропускаем ping");
       return;
     }
 
     const currentTime = Math.floor(Date.now() / 1000);
     const pingMessage = {
       time: currentTime,
-      channel: 'spot.ping'
+      channel: "spot.ping",
     };
 
     try {
       this.lastPingSentTime = Date.now();
       const timeISO = new Date(this.lastPingSentTime).toISOString();
-      
+
       this.ws.send(JSON.stringify(pingMessage));
       console.log(`🏓 PING отправлен [${timeISO}]`);
-      
-      // Устанавливаем таймер контроля - если через 30 секунд не получим pong, переподключаемся
+
       this.pongTimeout = setTimeout(() => {
         const timeSinceLastPong = Date.now() - this.lastPongTime;
-        console.log(`⚠️  PONG не получен в течение 30 секунд (последний: ${Math.floor(timeSinceLastPong / 1000)}с назад)`);
-        console.log('🔄 Принудительное переподключение...');
-        
+        console.log(
+          `⚠️  PONG не получен в течение 30 секунд (последний: ${Math.floor(
+            timeSinceLastPong / 1000
+          )}с назад)`
+        );
+        console.log("🔄 Принудительное переподключение...");
+
         if (this.state === EngineState.RUNNING) {
-          // Закрываем текущее соединение
           if (this.ws) {
             this.ws.close();
           }
-          // Переподключение произойдет автоматически через обработчик 'close'
         }
-      }, 30000); // 30 секунд на ожидание pong
-      
+      }, 30000);
     } catch (error: any) {
-      console.error('❌ Ошибка отправки ping:', error.message);
+      console.error("❌ Ошибка отправки ping:", error.message);
     }
   }
 
@@ -493,81 +488,80 @@ export class DTrader {
   // ПОДПИСКИ НА КАНАЛЫ WEBSOCKET
   // ==========================================================================
 
-  /**
-   * Подписывается на обновления балансов через WebSocket
-   */
   private subscribeToBalances(): void {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-      console.log('⚠️  WebSocket не подключен, невозможно подписаться на балансы');
+      console.log(
+        "⚠️  WebSocket не подключен, невозможно подписаться на балансы"
+      );
       return;
     }
 
-    console.log('📡 Подписка на обновления балансов...');
+    console.log("📡 Подписка на обновления балансов...");
 
     const currentTime = Math.floor(Date.now() / 1000);
-    const channel = 'spot.balances';
-    const event = 'subscribe';
+    const channel = "spot.balances";
+    const event = "subscribe";
 
-    // Генерируем подпись для аутентификации
     const auth = this.gateio.generateWebSocketAuth(channel, event, currentTime);
 
     const subscribeMessage = {
       time: currentTime,
       channel: channel,
       event: event,
-      auth: auth
+      auth: auth,
     };
 
     try {
       this.ws.send(JSON.stringify(subscribeMessage));
     } catch (error: any) {
-      console.error('❌ Ошибка подписки на балансы:', error.message);
+      console.error("❌ Ошибка подписки на балансы:", error.message);
     }
   }
 
-  /**
-   * Подписывается на тикер торговой пары
-   */
   private subscribeToTicker(): void {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-      console.log('⚠️  WebSocket не подключен, невозможно подписаться на тикер');
+      console.log(
+        "⚠️  WebSocket не подключен, невозможно подписаться на тикер"
+      );
       return;
     }
 
-    console.log('📡 Подписка на тикер ETH_USDT...');
+    console.log("📡 Подписка на тикер ETH_USDT...");
 
-    const subscribeMessage = this.gateio.createTickerSubscription(['ETH_USDT']);
+    const subscribeMessage = this.gateio.createTickerSubscription(["ETH_USDT"]);
 
     try {
       this.ws.send(JSON.stringify(subscribeMessage));
     } catch (error: any) {
-      console.error('❌ Ошибка подписки на тикер:', error.message);
+      console.error("❌ Ошибка подписки на тикер:", error.message);
     }
   }
 
-  /**
-   * Подписывается на обновления Order Book
-   */
   private subscribeToOrderBookUpdates(): void {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-      console.log('⚠️  WebSocket не подключен, невозможно подписаться на Order Book');
+      console.log(
+        "⚠️  WebSocket не подключен, невозможно подписаться на Order Book"
+      );
       return;
     }
 
     if (!this.orderBookManager) {
-      console.log('⚠️  OrderBookManager не инициализирован');
+      console.log("⚠️  OrderBookManager не инициализирован");
       return;
     }
 
-    const symbol = this.orderBookManager.getOrderBook()?.symbol || 'ETH_USDT';
+    const symbol = this.orderBookManager.getOrderBook()?.symbol || "ETH_USDT";
     console.log(`📡 Подписка на обновления Order Book для ${symbol}...`);
 
-    const subscribeMessage = this.gateio.createOrderBookUpdateSubscription(symbol, '100ms');
+    const subscribeMessage = this.gateio.createOrderBookUpdateSubscription(
+      symbol,
+      "100ms"
+    );
 
     try {
       this.ws.send(JSON.stringify(subscribeMessage));
     } catch (error: any) {
-      console.error('❌ Ошибка подписки на Order Book:', error.message);
+      console.error("❌ Ошибка подписки на Order Book:", error.message);
     }
   }
 
@@ -575,10 +569,7 @@ export class DTrader {
   // ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ
   // ==========================================================================
 
-  /**
-   * Вспомогательная функция для ожидания
-   */
   private sleep(ms: number): Promise<void> {
-    return new Promise(resolve => setTimeout(resolve, ms));
+    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 }

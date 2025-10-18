@@ -14,9 +14,9 @@ export interface Tick {
   price: number; // Цена последней сделки
   volume: number; // Объем за 24 часа
   timestamp: number; // Временная метка (мс)
-  high24h: number; // Максимум за 24 часа
-  low24h: number; // Минимум за 24 часа
-  changePercent: number; // Изменение цены в %
+  high24h?: number; // Максимум за 24 часа
+  low24h?: number; // Минимум за 24 часа
+  changePercent?: number; // Изменение цены в %
 }
 
 /**
@@ -84,6 +84,7 @@ export enum MessageType {
   TICK = "tick",
   ORDERBOOK = "orderbook",
   BALANCE = "balance",
+  INDICATOR = "indicator", // ✅ Новое: данные индикаторов
 
   // Ответы на подписки
   SUBSCRIBED = "subscribed",
@@ -99,6 +100,7 @@ export enum SubscriptionChannel {
   TICKS = "ticks", // Тики
   ORDERBOOK = "orderbook", // Order Book обновления
   BALANCE = "balance", // Балансы
+  INDICATORS = "indicators", // ✅ Новое: индикаторы
 }
 
 /**
@@ -167,6 +169,15 @@ export interface BalanceMessage extends BaseMessage {
     available: number;
     locked: number;
   }>;
+}
+
+/**
+ * Сообщение с данными индикатора
+ */
+export interface IndicatorMessage extends BaseMessage {
+  type: MessageType.INDICATOR;
+  name: string; // tick_speed, orderbook_pressure
+  data: any; // Данные индикатора
 }
 
 /**
@@ -252,7 +263,8 @@ export type ClientMessage =
   | LogMessage
   | TickMessage
   | OrderBookMessage
-  | BalanceMessage;
+  | BalanceMessage
+  | IndicatorMessage; // ✅ Новое
 
 /**
  * Свеча (Candlestick)

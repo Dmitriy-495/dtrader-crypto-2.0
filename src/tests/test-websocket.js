@@ -1,6 +1,6 @@
 const WebSocket = require("ws");
 
-const ws = new WebSocket("ws://localhost:8080");
+const ws = new WebSocket("ws://176.123.160.174:8080");
 
 ws.on("open", () => {
   console.log("✅ Подключено к серверу");
@@ -42,3 +42,4 @@ ws.on("close", () => {
 ws.on("error", (error) => {
   console.error("❌ Ошибка:", error.message);
 });
+2
