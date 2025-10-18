@@ -96,11 +96,12 @@ export enum MessageType {
  * Каналы для подписки
  */
 export enum SubscriptionChannel {
+  SYSTEM = "system", // Системные сообщения (автоматическая подписка, нельзя отписаться)
   LOGS = "logs", // Все логи
   TICKS = "ticks", // Тики
   ORDERBOOK = "orderbook", // Order Book обновления
   BALANCE = "balance", // Балансы
-  INDICATORS = "indicators", // ✅ Новое: индикаторы
+  INDICATORS = "indicators", // Индикаторы
 }
 
 /**
@@ -178,6 +179,17 @@ export interface IndicatorMessage extends BaseMessage {
   type: MessageType.INDICATOR;
   name: string; // tick_speed, orderbook_pressure
   data: any; // Данные индикатора
+}
+
+/**
+ * Системное сообщение (статус соединения с биржей и т.д.)
+ */
+export interface SystemMessage extends BaseMessage {
+  type: MessageType.LOG;
+  level: LogLevel;
+  message: string;
+  source: string;
+  category: "system" | "internal"; // Категория: system (критичное) или internal (обычное)
 }
 
 /**

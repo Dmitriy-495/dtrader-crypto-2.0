@@ -5,10 +5,6 @@
 import { BroadcastManager } from "./BroadcastManager";
 import { LogLevel } from "../types";
 
-// ============================================================================
-// КЛАСС LOGGER
-// ============================================================================
-
 export class Logger {
   private broadcaster: BroadcastManager | null = null;
   private originalConsole: {
@@ -19,11 +15,7 @@ export class Logger {
   };
   private isIntercepting: boolean = false;
 
-  /**
-   * Конструктор
-   */
   constructor() {
-    // Сохраняем оригинальные методы console
     this.originalConsole = {
       log: console.log.bind(console),
       error: console.error.bind(console),
@@ -32,20 +24,10 @@ export class Logger {
     };
   }
 
-  // ==========================================================================
-  // УПРАВЛЕНИЕ
-  // ==========================================================================
-
-  /**
-   * Устанавливает BroadcastManager для трансляции
-   */
   setBroadcaster(broadcaster: BroadcastManager): void {
     this.broadcaster = broadcaster;
   }
 
-  /**
-   * Включает перехват console
-   */
   startIntercepting(): void {
     if (this.isIntercepting) {
       return;
@@ -71,15 +53,11 @@ export class Logger {
     this.originalConsole.log("✅ Logger: перехват console активирован");
   }
 
-  /**
-   * Останавливает перехват console
-   */
   stopIntercepting(): void {
     if (!this.isIntercepting) {
       return;
     }
 
-    // Восстанавливаем оригинальные методы
     console.log = this.originalConsole.log;
     console.error = this.originalConsole.error;
     console.warn = this.originalConsole.warn;
@@ -89,15 +67,7 @@ export class Logger {
     this.originalConsole.log("✅ Logger: перехват console деактивирован");
   }
 
-  // ==========================================================================
-  // ОБРАБОТКА ЛОГОВ
-  // ==========================================================================
-
-  /**
-   * Обрабатывает лог-сообщение
-   */
   private handleLog(level: LogLevel, args: any[]): void {
-    // Форматируем сообщение
     const message = args
       .map((arg) => {
         if (typeof arg === "object") {
@@ -123,94 +93,134 @@ export class Logger {
         this.originalConsole.log(message);
     }
 
+    // Определяем категорию по содержимому сообщения
+    const category = this.detectCategory(message);
+
     // Транслируем клиентам если есть broadcaster
     if (this.broadcaster && this.broadcaster.isActive()) {
-      this.broadcaster.broadcastLog(level, message);
+      this.broadcaster.broadcastLog(level, message, "server", category);
     }
   }
 
-  // ==========================================================================
-  // ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ЛОГИРОВАНИЯ
-  // ==========================================================================
-
   /**
-   * Прямой вызов log (без перехвата)
+   * Определяет категорию лога по содержимому
    */
+  private detectCategory(message: string): "system" | "internal" {
+    // Системные сообщения (запуск, остановка, подключения, связь с биржей)
+    if (
+      message.includes("Запуск") ||
+      message.includes("Остановка") ||
+      message.includes("запущен") ||
+      message.includes("остановлен") ||
+      message.includes("Клиент подключен") ||
+      message.includes("Клиент отключен") ||
+      message.includes("BroadcastManager") ||
+      // ✅ Всё о бирже - в system
+      message.includes("PING") ||
+      message.includes("PONG") ||
+      message.includes("WebSocket") ||
+      message.includes("подписк") ||
+      message.includes("Переподключение") ||
+      message.includes("Gate.io") ||
+      message.includes("Order Book") ||
+      message.includes("Снапшот") ||
+      message.includes("Инициализация") ||
+      message.includes("синхронизирован")
+    ) {
+      return "system";
+    }
+
+    // Остальное - внутренние логи
+    return "internal";
+  }
+
   directLog(message: string): void {
     this.originalConsole.log(message);
   }
 
-  /**
-   * Прямой вызов error (без перехвата)
-   */
   directError(message: string): void {
     this.originalConsole.error(message);
   }
 
-  /**
-   * Прямой вызов warn (без перехвата)
-   */
   directWarn(message: string): void {
     this.originalConsole.warn(message);
   }
 
-  /**
-   * Логирование с успехом
-   */
   success(message: string): void {
     const formattedMessage = `✅ ${message}`;
     this.originalConsole.log(formattedMessage);
 
+    const category = this.detectCategory(message);
+
     if (this.broadcaster && this.broadcaster.isActive()) {
-      this.broadcaster.broadcastLog(LogLevel.SUCCESS, formattedMessage);
+      this.broadcaster.broadcastLog(
+        LogLevel.SUCCESS,
+        formattedMessage,
+        "server",
+        category
+      );
     }
   }
 
-  /**
-   * Логирование с информацией
-   */
   info(message: string): void {
     const formattedMessage = `ℹ️  ${message}`;
     this.originalConsole.info(formattedMessage);
 
+    const category = this.detectCategory(message);
+
     if (this.broadcaster && this.broadcaster.isActive()) {
-      this.broadcaster.broadcastLog(LogLevel.INFO, formattedMessage);
+      this.broadcaster.broadcastLog(
+        LogLevel.INFO,
+        formattedMessage,
+        "server",
+        category
+      );
     }
   }
 
-  /**
-   * Логирование с предупреждением
-   */
   warn(message: string): void {
     const formattedMessage = `⚠️  ${message}`;
     this.originalConsole.warn(formattedMessage);
 
+    const category = this.detectCategory(message);
+
     if (this.broadcaster && this.broadcaster.isActive()) {
-      this.broadcaster.broadcastLog(LogLevel.WARN, formattedMessage);
+      this.broadcaster.broadcastLog(
+        LogLevel.WARN,
+        formattedMessage,
+        "server",
+        category
+      );
     }
   }
 
-  /**
-   * Логирование с ошибкой
-   */
   error(message: string): void {
     const formattedMessage = `❌ ${message}`;
     this.originalConsole.error(formattedMessage);
 
+    const category = this.detectCategory(message);
+
     if (this.broadcaster && this.broadcaster.isActive()) {
-      this.broadcaster.broadcastLog(LogLevel.ERROR, formattedMessage);
+      this.broadcaster.broadcastLog(
+        LogLevel.ERROR,
+        formattedMessage,
+        "server",
+        category
+      );
     }
   }
 
-  /**
-   * Логирование с отладкой
-   */
   debug(message: string): void {
     const formattedMessage = `🔍 ${message}`;
     this.originalConsole.log(formattedMessage);
 
     if (this.broadcaster && this.broadcaster.isActive()) {
-      this.broadcaster.broadcastLog(LogLevel.DEBUG, formattedMessage);
+      this.broadcaster.broadcastLog(
+        LogLevel.DEBUG,
+        formattedMessage,
+        "server",
+        "internal"
+      );
     }
   }
 }

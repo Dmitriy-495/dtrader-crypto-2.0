@@ -149,7 +149,7 @@ export class BroadcastManager {
       ws: ws,
       connectedAt: Date.now(),
       lastPing: Date.now(),
-      subscriptions: new Set(), // Изначально без подписок
+      subscriptions: new Set([SubscriptionChannel.SYSTEM]), // ✅ Автоматическая подписка на system
     };
 
     this.clients.set(clientId, clientInfo);
@@ -280,18 +280,25 @@ export class BroadcastManager {
       return;
     }
 
+    // Фильтруем системный канал - на него нельзя подписаться вручную (он уже есть)
+    const validChannels = channels.filter(
+      (ch) => ch !== SubscriptionChannel.SYSTEM
+    );
+
     // Добавляем подписки
-    channels.forEach((channel) => {
+    validChannels.forEach((channel) => {
       client.subscriptions.add(channel);
     });
 
-    console.log(`📥 Клиент ${clientId} подписался на: ${channels.join(", ")}`);
+    console.log(
+      `📥 Клиент ${clientId} подписался на: ${validChannels.join(", ")}`
+    );
 
     // Отправляем подтверждение
     this.sendToClient(clientId, {
       type: MessageType.SUBSCRIBED,
-      channels: channels,
-      message: `Successfully subscribed to ${channels.length} channel(s)`,
+      channels: validChannels,
+      message: `Successfully subscribed to ${validChannels.length} channel(s)`,
       timestamp: Date.now(),
     });
   }
@@ -308,18 +315,25 @@ export class BroadcastManager {
       return;
     }
 
+    // Фильтруем системный канал - от него нельзя отписаться
+    const validChannels = channels.filter(
+      (ch) => ch !== SubscriptionChannel.SYSTEM
+    );
+
     // Удаляем подписки
-    channels.forEach((channel) => {
+    validChannels.forEach((channel) => {
       client.subscriptions.delete(channel);
     });
 
-    console.log(`📤 Клиент ${clientId} отписался от: ${channels.join(", ")}`);
+    console.log(
+      `📤 Клиент ${clientId} отписался от: ${validChannels.join(", ")}`
+    );
 
     // Отправляем подтверждение
     this.sendToClient(clientId, {
       type: MessageType.UNSUBSCRIBED,
-      channels: channels,
-      message: `Successfully unsubscribed from ${channels.length} channel(s)`,
+      channels: validChannels,
+      message: `Successfully unsubscribed from ${validChannels.length} channel(s)`,
       timestamp: Date.now(),
     });
   }
@@ -345,7 +359,13 @@ export class BroadcastManager {
     let channel: SubscriptionChannel | null = null;
     switch (message.type) {
       case MessageType.LOG:
-        channel = SubscriptionChannel.LOGS;
+        // ✅ Проверяем категорию лога
+        const logMsg = message as any;
+        if (logMsg.category === "system") {
+          channel = SubscriptionChannel.SYSTEM;
+        } else {
+          channel = SubscriptionChannel.LOGS;
+        }
         break;
       case MessageType.TICK:
         channel = SubscriptionChannel.TICKS;
@@ -356,10 +376,16 @@ export class BroadcastManager {
       case MessageType.BALANCE:
         channel = SubscriptionChannel.BALANCE;
         break;
+      case MessageType.INDICATOR:
+        channel = SubscriptionChannel.INDICATORS;
+        break;
     }
 
-    // Добавляем в буфер только логи
-    if (message.type === MessageType.LOG) {
+    // Добавляем в буфер только обычные логи
+    if (
+      message.type === MessageType.LOG &&
+      channel === SubscriptionChannel.LOGS
+    ) {
       this.addToBuffer(message);
     }
 
@@ -394,14 +420,20 @@ export class BroadcastManager {
   /**
    * Отправляет лог-сообщение
    */
-  broadcastLog(level: LogLevel, message: string, source?: string): void {
+  broadcastLog(
+    level: LogLevel,
+    message: string,
+    source?: string,
+    category?: "system" | "internal"
+  ): void {
     this.broadcast({
       type: MessageType.LOG,
       level,
       message,
-      source,
+      source: source || "server",
+      category: category || "internal",
       timestamp: Date.now(),
-    });
+    } as any);
   }
 
   // ==========================================================================
