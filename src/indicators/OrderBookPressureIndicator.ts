@@ -1,21 +1,21 @@
-updateConfig(config: Partial<OrderBookPressure/**
+/**
  * OrderBookPressureIndicator - индикатор давления в стакане
  * Анализирует соотношение bid/ask объемов для определения направления давления
  */
 
-import { OrderBook } from '../types';
+import { OrderBook } from "../types";
 
 export interface OrderBookPressureConfig {
-  depthLevels: number;  // Сколько уровней стакана учитывать (5-20)
+  depthLevels: number; // Сколько уровней стакана учитывать (5-20)
   weightedMode: boolean; // Использовать взвешенный расчет по ценам
 }
 
 export enum PressureDirection {
-  STRONG_BUY = 'STRONG_BUY',     // Сильное давление покупок
-  BUY = 'BUY',                   // Давление покупок
-  NEUTRAL = 'NEUTRAL',           // Нейтрально
-  SELL = 'SELL',                 // Давление продаж
-  STRONG_SELL = 'STRONG_SELL'    // Сильное давление продаж
+  STRONG_BUY = "STRONG_BUY", // Сильное давление покупок
+  BUY = "BUY", // Давление покупок
+  NEUTRAL = "NEUTRAL", // Нейтрально
+  SELL = "SELL", // Давление продаж
+  STRONG_SELL = "STRONG_SELL", // Сильное давление продаж
 }
 
 export interface OrderBookPressureResult {
@@ -24,7 +24,7 @@ export interface OrderBookPressureResult {
   totalVolume: number;
   bidPercent: number;
   askPercent: number;
-  imbalance: number;           // OBI: от -1 (sell) до +1 (buy)
+  imbalance: number; // OBI: от -1 (sell) до +1 (buy)
   direction: PressureDirection;
   spread: number;
   spreadPercent: number;
@@ -36,7 +36,8 @@ export class OrderBookPressureIndicator {
   constructor(config: OrderBookPressureConfig) {
     this.config = {
       depthLevels: config.depthLevels || 10,
-      weightedMode: config.weightedMode !== undefined ? config.weightedMode : true
+      weightedMode:
+        config.weightedMode !== undefined ? config.weightedMode : true,
     };
   }
 
@@ -58,7 +59,8 @@ export class OrderBookPressureIndicator {
     const totalVolume = bidVolume + askVolume;
     const bidPercent = totalVolume > 0 ? (bidVolume / totalVolume) * 100 : 50;
     const askPercent = totalVolume > 0 ? (askVolume / totalVolume) * 100 : 50;
-    const imbalance = totalVolume > 0 ? (bidVolume - askVolume) / totalVolume : 0;
+    const imbalance =
+      totalVolume > 0 ? (bidVolume - askVolume) / totalVolume : 0;
     const direction = this.getDirection(imbalance);
 
     const bestBid = orderBook.bids[0]?.price || 0;
@@ -76,23 +78,27 @@ export class OrderBookPressureIndicator {
       imbalance: Math.round(imbalance * 1000) / 1000,
       direction,
       spread: Math.round(spread * 100) / 100,
-      spreadPercent: Math.round(spreadPercent * 10000) / 10000
+      spreadPercent: Math.round(spreadPercent * 10000) / 10000,
     };
   }
 
-  private calculateSimpleVolume(levels: Array<{price: number, amount: number}>): number {
+  private calculateSimpleVolume(
+    levels: Array<{ price: number; amount: number }>
+  ): number {
     return levels.reduce((sum, level) => {
-      return sum + (level.price * level.amount);
+      return sum + level.price * level.amount;
     }, 0);
   }
 
-  private calculateWeightedVolume(levels: Array<{price: number, amount: number}>): number {
+  private calculateWeightedVolume(
+    levels: Array<{ price: number; amount: number }>
+  ): number {
     let weightedSum = 0;
     const totalLevels = levels.length;
 
     levels.forEach((level, index) => {
       const weight = 1 - (index / totalLevels) * 0.5;
-      weightedSum += (level.price * level.amount) * weight;
+      weightedSum += level.price * level.amount * weight;
     });
 
     return weightedSum;
@@ -106,7 +112,10 @@ export class OrderBookPressureIndicator {
     return PressureDirection.NEUTRAL;
   }
 
-  comparePressure(current: OrderBookPressureResult, previous: OrderBookPressureResult): {
+  comparePressure(
+    current: OrderBookPressureResult,
+    previous: OrderBookPressureResult
+  ): {
     imbalanceChange: number;
     isIncreasing: boolean;
     isSignificant: boolean;
@@ -118,7 +127,7 @@ export class OrderBookPressureIndicator {
     return {
       imbalanceChange: Math.round(imbalanceChange * 1000) / 1000,
       isIncreasing,
-      isSignificant
+      isSignificant,
     };
   }
 
