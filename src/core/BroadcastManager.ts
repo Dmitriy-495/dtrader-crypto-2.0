@@ -188,7 +188,14 @@ export class BroadcastManager {
    */
   private handleClientMessage(clientId: string, data: Buffer): void {
     try {
-      const message = JSON.parse(data.toString());
+      const rawMessage = data.toString().trim();
+
+      // ✅ Игнорируем пустые сообщения
+      if (!rawMessage || rawMessage.length === 0) {
+        return;
+      }
+
+      const message = JSON.parse(rawMessage);
 
       // Обрабатываем PING от клиента
       if (message.type === MessageType.PING) {
@@ -215,6 +222,18 @@ export class BroadcastManager {
         this.handleUnsubscribe(clientId, message.channels);
         return;
       }
+
+      // ✅ Если сообщение не распознано
+      console.warn(
+        `⚠️  Неизвестный тип сообщения от ${clientId}:`,
+        message.type || "undefined"
+      );
+      this.sendToClient(clientId, {
+        type: MessageType.ERROR,
+        error: "Unknown message type",
+        details: `Type '${message.type}' is not supported`,
+        timestamp: Date.now(),
+      });
     } catch (error: any) {
       console.error(
         `❌ Ошибка парсинга сообщения от ${clientId}:`,
@@ -314,6 +333,11 @@ export class BroadcastManager {
    */
   broadcast(message: ClientMessage): void {
     if (!this.config.enabled || !this.isRunning) {
+      return;
+    }
+
+    // ✅ Не добавляем в буфер и не отправляем если нет клиентов
+    if (this.clients.size === 0) {
       return;
     }
 
