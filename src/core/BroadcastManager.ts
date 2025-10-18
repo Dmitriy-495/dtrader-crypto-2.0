@@ -1,18 +1,25 @@
 /**
- * LogBroadcaster - WebSocket сервер для трансляции логов клиентам
+ * BroadcastManager - центральный хаб для трансляции данных клиентам
+ * Управляет WebSocket сервером, клиентами и подписками
  */
 
 import { WebSocketServer, WebSocket } from "ws";
-import { ClientMessage, LogMessage, LogLevel, MessageType } from "../types";
+import {
+  ClientMessage,
+  LogMessage,
+  LogLevel,
+  MessageType,
+  SubscriptionChannel,
+} from "../types";
 
 // ============================================================================
 // ИНТЕРФЕЙСЫ
 // ============================================================================
 
 /**
- * Конфигурация LogBroadcaster
+ * Конфигурация BroadcastManager
  */
-export interface LogBroadcasterConfig {
+export interface BroadcastManagerConfig {
   port: number; // Порт для WebSocket сервера
   enabled: boolean; // Включен ли broadcaster
 }
@@ -25,14 +32,15 @@ interface ClientInfo {
   ws: WebSocket;
   connectedAt: number;
   lastPing: number;
+  subscriptions: Set<SubscriptionChannel>; // Подписки клиента
 }
 
 // ============================================================================
-// КЛАСС LOGBROADCASTER
+// КЛАСС BROADCASTMANAGER
 // ============================================================================
 
-export class LogBroadcaster {
-  private config: LogBroadcasterConfig;
+export class BroadcastManager {
+  private config: BroadcastManagerConfig;
   private wss: WebSocketServer | null = null;
   private clients: Map<string, ClientInfo> = new Map();
   private messageBuffer: ClientMessage[] = [];
@@ -42,7 +50,7 @@ export class LogBroadcaster {
   /**
    * Конструктор
    */
-  constructor(config: LogBroadcasterConfig) {
+  constructor(config: BroadcastManagerConfig) {
     this.config = config;
   }
 
@@ -55,17 +63,19 @@ export class LogBroadcaster {
    */
   start(): void {
     if (!this.config.enabled) {
-      console.log("📡 LogBroadcaster отключен в конфигурации");
+      console.log("📡 BroadcastManager отключен в конфигурации");
       return;
     }
 
     if (this.isRunning) {
-      console.log("⚠️  LogBroadcaster уже запущен");
+      console.log("⚠️  BroadcastManager уже запущен");
       return;
     }
 
     try {
-      console.log(`\n📡 Запуск LogBroadcaster на порту ${this.config.port}...`);
+      console.log(
+        `\n📡 Запуск BroadcastManager на порту ${this.config.port}...`
+      );
 
       this.wss = new WebSocketServer({
         port: this.config.port,
@@ -82,11 +92,11 @@ export class LogBroadcaster {
 
       this.isRunning = true;
       console.log(
-        `✅ LogBroadcaster запущен на ws://0.0.0.0:${this.config.port}`
+        `✅ BroadcastManager запущен на ws://0.0.0.0:${this.config.port}`
       );
       console.log(`📊 Ожидание подключения клиентов...\n`);
     } catch (error: any) {
-      console.error("❌ Ошибка запуска LogBroadcaster:", error.message);
+      console.error("❌ Ошибка запуска BroadcastManager:", error.message);
       throw error;
     }
   }
@@ -99,7 +109,7 @@ export class LogBroadcaster {
       return;
     }
 
-    console.log("\n🛑 Остановка LogBroadcaster...");
+    console.log("\n🛑 Остановка BroadcastManager...");
 
     // Отключаем всех клиентов
     this.clients.forEach((client, clientId) => {
@@ -121,7 +131,7 @@ export class LogBroadcaster {
     }
 
     this.isRunning = false;
-    console.log("✅ LogBroadcaster остановлен\n");
+    console.log("✅ BroadcastManager остановлен\n");
   }
 
   // ==========================================================================
@@ -139,12 +149,13 @@ export class LogBroadcaster {
       ws: ws,
       connectedAt: Date.now(),
       lastPing: Date.now(),
+      subscriptions: new Set(), // Изначально без подписок
     };
 
     this.clients.set(clientId, clientInfo);
 
     console.log(
-      `🔌 Новый клиент подключен: ${clientId} (всего клиентов: ${this.clients.size})`
+      `🔌 Клиент подключен: ${clientId} (всего клиентов: ${this.clients.size})`
     );
 
     // Отправляем клиенту его ID
@@ -156,11 +167,6 @@ export class LogBroadcaster {
         platform: process.platform,
       },
       timestamp: Date.now(),
-    });
-
-    // Отправляем буферизованные сообщения
-    this.messageBuffer.forEach((msg) => {
-      this.sendToClient(clientId, msg);
     });
 
     // Обработчики событий клиента
@@ -184,7 +190,7 @@ export class LogBroadcaster {
     try {
       const message = JSON.parse(data.toString());
 
-      // Обрабатываем PONG от клиента
+      // Обрабатываем PING от клиента
       if (message.type === MessageType.PING) {
         this.sendToClient(clientId, {
           type: MessageType.PONG,
@@ -195,12 +201,31 @@ export class LogBroadcaster {
         if (client) {
           client.lastPing = Date.now();
         }
+        return;
+      }
+
+      // Обрабатываем SUBSCRIBE
+      if (message.type === MessageType.SUBSCRIBE) {
+        this.handleSubscribe(clientId, message.channels);
+        return;
+      }
+
+      // Обрабатываем UNSUBSCRIBE
+      if (message.type === MessageType.UNSUBSCRIBE) {
+        this.handleUnsubscribe(clientId, message.channels);
+        return;
       }
     } catch (error: any) {
       console.error(
         `❌ Ошибка парсинга сообщения от ${clientId}:`,
         error.message
       );
+      this.sendToClient(clientId, {
+        type: MessageType.ERROR,
+        error: "Invalid message format",
+        details: error.message,
+        timestamp: Date.now(),
+      });
     }
   }
 
@@ -208,10 +233,76 @@ export class LogBroadcaster {
    * Обрабатывает отключение клиента
    */
   private handleClientDisconnect(clientId: string): void {
+    const client = this.clients.get(clientId);
+    if (client) {
+      const channels = Array.from(client.subscriptions);
+      console.log(
+        `🔌 Клиент отключен: ${clientId} (подписки: ${
+          channels.join(", ") || "нет"
+        }) (осталось: ${this.clients.size - 1})`
+      );
+    }
     this.clients.delete(clientId);
-    console.log(
-      `🔌 Клиент отключен: ${clientId} (осталось клиентов: ${this.clients.size})`
-    );
+  }
+
+  // ==========================================================================
+  // УПРАВЛЕНИЕ ПОДПИСКАМИ
+  // ==========================================================================
+
+  /**
+   * Обрабатывает подписку клиента на каналы
+   */
+  private handleSubscribe(
+    clientId: string,
+    channels: SubscriptionChannel[]
+  ): void {
+    const client = this.clients.get(clientId);
+    if (!client) {
+      return;
+    }
+
+    // Добавляем подписки
+    channels.forEach((channel) => {
+      client.subscriptions.add(channel);
+    });
+
+    console.log(`📥 Клиент ${clientId} подписался на: ${channels.join(", ")}`);
+
+    // Отправляем подтверждение
+    this.sendToClient(clientId, {
+      type: MessageType.SUBSCRIBED,
+      channels: channels,
+      message: `Successfully subscribed to ${channels.length} channel(s)`,
+      timestamp: Date.now(),
+    });
+  }
+
+  /**
+   * Обрабатывает отписку клиента от каналов
+   */
+  private handleUnsubscribe(
+    clientId: string,
+    channels: SubscriptionChannel[]
+  ): void {
+    const client = this.clients.get(clientId);
+    if (!client) {
+      return;
+    }
+
+    // Удаляем подписки
+    channels.forEach((channel) => {
+      client.subscriptions.delete(channel);
+    });
+
+    console.log(`📤 Клиент ${clientId} отписался от: ${channels.join(", ")}`);
+
+    // Отправляем подтверждение
+    this.sendToClient(clientId, {
+      type: MessageType.UNSUBSCRIBED,
+      channels: channels,
+      message: `Successfully unsubscribed from ${channels.length} channel(s)`,
+      timestamp: Date.now(),
+    });
   }
 
   // ==========================================================================
@@ -226,12 +317,34 @@ export class LogBroadcaster {
       return;
     }
 
-    // Добавляем в буфер
-    this.addToBuffer(message);
+    // Определяем канал сообщения
+    let channel: SubscriptionChannel | null = null;
+    switch (message.type) {
+      case MessageType.LOG:
+        channel = SubscriptionChannel.LOGS;
+        break;
+      case MessageType.TICK:
+        channel = SubscriptionChannel.TICKS;
+        break;
+      case MessageType.ORDERBOOK:
+        channel = SubscriptionChannel.ORDERBOOK;
+        break;
+      case MessageType.BALANCE:
+        channel = SubscriptionChannel.BALANCE;
+        break;
+    }
 
-    // Отправляем всем подключенным клиентам
+    // Добавляем в буфер только логи
+    if (message.type === MessageType.LOG) {
+      this.addToBuffer(message);
+    }
+
+    // Отправляем только подписанным клиентам
     this.clients.forEach((client, clientId) => {
-      this.sendToClient(clientId, message);
+      // Если канал не определен (системные сообщения) или клиент подписан - отправляем
+      if (channel === null || client.subscriptions.has(channel)) {
+        this.sendToClient(clientId, message);
+      }
     });
   }
 

@@ -5,7 +5,7 @@
 
 import { OrderBook, OrderBookLevel, OrderBookUpdate } from "../types";
 import { GateIO } from "../GateIO";
-import { LogBroadcaster } from "./LogBroadcaster";
+import { BroadcastManager } from "./BroadcastManager";
 import { MessageType } from "../types";
 
 // ============================================================================
@@ -19,7 +19,7 @@ export interface OrderBookManagerConfig {
   symbol: string; // Торговая пара (ETH_USDT)
   depth: number; // Глубина order book (10, 20, 50, 100)
   gateio: GateIO; // Экземпляр GateIO для REST запросов
-  logBroadcaster?: LogBroadcaster; // LogBroadcaster для трансляции данных (опционально)
+  broadcastManager?: BroadcastManager; // BroadcastManager для трансляции данных (опционально)
 }
 
 /**
@@ -40,14 +40,14 @@ export class OrderBookManager {
   private orderBook: OrderBook | null = null;
   private updateCache: OrderBookUpdate[] = [];
   private syncState: SyncState = SyncState.NOT_INITIALIZED;
-  private logBroadcaster: LogBroadcaster | null = null;
+  private broadcastManager: BroadcastManager | null = null;
 
   /**
    * Конструктор
    */
   constructor(config: OrderBookManagerConfig) {
     this.config = config;
-    this.logBroadcaster = config.logBroadcaster || null;
+    this.broadcastManager = config.broadcastManager || null;
     console.log(
       `📖 OrderBookManager создан для ${config.symbol} (глубина: ${config.depth})`
     );
@@ -394,12 +394,12 @@ export class OrderBookManager {
 
     console.log(logMessage);
 
-    // Отправляем данные Order Book клиентам через LogBroadcaster
-    if (this.logBroadcaster && this.logBroadcaster.isActive()) {
+    // Отправляем данные Order Book клиентам через BroadcastManager
+    if (this.broadcastManager && this.broadcastManager.isActive()) {
       const spread = this.getSpread();
       const midPrice = this.getMidPrice();
 
-      this.logBroadcaster.broadcast({
+      this.broadcastManager.broadcast({
         type: MessageType.ORDERBOOK,
         symbol: this.orderBook.symbol,
         data: {

@@ -2,7 +2,7 @@
  * Logger - перехватчик console для трансляции логов клиентам
  */
 
-import { LogBroadcaster } from "./LogBroadcaster";
+import { BroadcastManager } from "./BroadcastManager";
 import { LogLevel } from "../types";
 
 // ============================================================================
@@ -10,7 +10,7 @@ import { LogLevel } from "../types";
 // ============================================================================
 
 export class Logger {
-  private broadcaster: LogBroadcaster | null = null;
+  private broadcaster: BroadcastManager | null = null;
   private originalConsole: {
     log: typeof console.log;
     error: typeof console.error;
@@ -37,9 +37,9 @@ export class Logger {
   // ==========================================================================
 
   /**
-   * Устанавливает LogBroadcaster для трансляции
+   * Устанавливает BroadcastManager для трансляции
    */
-  setBroadcaster(broadcaster: LogBroadcaster): void {
+  setBroadcaster(broadcaster: BroadcastManager): void {
     this.broadcaster = broadcaster;
   }
 

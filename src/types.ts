@@ -69,14 +69,36 @@ export enum LogLevel {
  * Тип сообщения для клиентов
  */
 export enum MessageType {
+  // Системные
   CONNECT = "connect",
   DISCONNECT = "disconnect",
+  PING = "ping",
+  PONG = "pong",
+
+  // Подписки (запросы от клиента)
+  SUBSCRIBE = "subscribe",
+  UNSUBSCRIBE = "unsubscribe",
+
+  // Данные (от сервера к клиенту)
   LOG = "log",
   TICK = "tick",
   ORDERBOOK = "orderbook",
   BALANCE = "balance",
-  PING = "ping",
-  PONG = "pong",
+
+  // Ответы на подписки
+  SUBSCRIBED = "subscribed",
+  UNSUBSCRIBED = "unsubscribed",
+  ERROR = "error",
+}
+
+/**
+ * Каналы для подписки
+ */
+export enum SubscriptionChannel {
+  LOGS = "logs", // Все логи
+  TICKS = "ticks", // Тики
+  ORDERBOOK = "orderbook", // Order Book обновления
+  BALANCE = "balance", // Балансы
 }
 
 /**
@@ -168,17 +190,69 @@ export interface DisconnectMessage extends BaseMessage {
 }
 
 /**
- * Объединенный тип всех сообщений
+ * Запрос на подписку от клиента
+ */
+export interface SubscribeRequest extends BaseMessage {
+  type: MessageType.SUBSCRIBE;
+  channels: SubscriptionChannel[]; // Массив каналов для подписки
+}
+
+/**
+ * Запрос на отписку от клиента
+ */
+export interface UnsubscribeRequest extends BaseMessage {
+  type: MessageType.UNSUBSCRIBE;
+  channels: SubscriptionChannel[]; // Массив каналов для отписки
+}
+
+/**
+ * Ответ на успешную подписку
+ */
+export interface SubscribedMessage extends BaseMessage {
+  type: MessageType.SUBSCRIBED;
+  channels: SubscriptionChannel[];
+  message: string;
+}
+
+/**
+ * Ответ на успешную отписку
+ */
+export interface UnsubscribedMessage extends BaseMessage {
+  type: MessageType.UNSUBSCRIBED;
+  channels: SubscriptionChannel[];
+  message: string;
+}
+
+/**
+ * Сообщение об ошибке
+ */
+export interface ErrorMessage extends BaseMessage {
+  type: MessageType.ERROR;
+  error: string;
+  details?: string;
+}
+
+/**
+ * Объединенный тип всех сообщений (от сервера к клиенту и обратно)
  */
 export type ClientMessage =
+  // Системные сообщения
   | ConnectMessage
+  | DisconnectMessage
+  | PingMessage
+  | PongMessage
+  // Запросы от клиента
+  | SubscribeRequest
+  | UnsubscribeRequest
+  // Ответы сервера
+  | SubscribedMessage
+  | UnsubscribedMessage
+  | ErrorMessage
+  // Данные от сервера
   | LogMessage
   | TickMessage
   | OrderBookMessage
-  | BalanceMessage
-  | PingMessage
-  | PongMessage
-  | DisconnectMessage;
+  | BalanceMessage;
 
 /**
  * Свеча (Candlestick)
