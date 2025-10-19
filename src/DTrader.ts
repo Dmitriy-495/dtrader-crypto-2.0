@@ -401,23 +401,57 @@ export class DTrader {
 
       this.obUpdateCounter++;
 
-      // Каждое 50-е обновление рассчитываем давление
+      // ✅ Добавим диагностический лог
+      if (this.obUpdateCounter === 1) {
+        console.log("📊 Order Book: начали получать обновления");
+      }
+
+      // Каждое 50-е обновление рассчитываем давление и транслируем Order Book
       if (this.obUpdateCounter % 50 === 0) {
+        console.log(
+          `📊 Order Book: обновление #${this.obUpdateCounter}, отправка данных клиентам`
+        );
+
         const orderBook = this.orderBookManager.getOrderBook();
         if (orderBook) {
+          // Рассчитываем давление
           const pressure = this.obPressureIndicator.calculate(orderBook);
 
-          // Транслируем индикатор клиентам
+          // ✅ Транслируем Order Book данные
           if (this.broadcastManager && this.broadcastManager.isActive()) {
+            const ratio = this.orderBookManager.getVolumeRatio();
+            if (ratio) {
+              this.broadcastManager.broadcast({
+                type: MessageType.ORDERBOOK,
+                symbol: orderBook.symbol,
+                data: {
+                  askVolume: ratio.askVolume,
+                  bidVolume: ratio.bidVolume,
+                  askPercent: ratio.askPercent,
+                  bidPercent: ratio.bidPercent,
+                  spread: this.orderBookManager.getSpread() || undefined,
+                  midPrice: this.orderBookManager.getMidPrice() || undefined,
+                },
+                timestamp: orderBook.timestamp,
+              });
+              console.log("  ✅ Order Book данные отправлены");
+            }
+
+            // Транслируем индикатор давления
             this.broadcastManager.broadcast({
               type: MessageType.INDICATOR,
               name: "orderbook_pressure",
               data: pressure,
               timestamp: Date.now(),
             });
+            console.log("  ✅ Индикатор orderbook_pressure отправлен");
+          } else {
+            console.log("  ⚠️ BroadcastManager неактивен");
           }
 
           this.previousOBPressure = pressure;
+        } else {
+          console.log("  ⚠️ Order Book не готов");
         }
       }
     }
