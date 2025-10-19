@@ -96,7 +96,7 @@ export class Logger {
     // Определяем категорию по содержимому сообщения
     const category = this.detectCategory(message);
 
-    // Транслируем клиентам если есть broadcaster
+    // ✅ ВСЕГДА транслируем клиентам если есть broadcaster
     if (this.broadcaster && this.broadcaster.isActive()) {
       this.broadcaster.broadcastLog(level, message, "server", category);
     }
