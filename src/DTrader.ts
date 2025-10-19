@@ -406,10 +406,10 @@ export class DTrader {
         console.log("📊 Order Book: начали получать обновления");
       }
 
-      // Каждое 50-е обновление рассчитываем давление и транслируем Order Book
+      // Каждое 50-е обновление рассчитываем давление и транслируем
       if (this.obUpdateCounter % 50 === 0) {
         console.log(
-          `📊 Order Book: обновление #${this.obUpdateCounter}, отправка данных клиентам`
+          `📊 Order Book: обновление #${this.obUpdateCounter}, отправка индикатора`
         );
 
         const orderBook = this.orderBookManager.getOrderBook();
@@ -417,27 +417,8 @@ export class DTrader {
           // Рассчитываем давление
           const pressure = this.obPressureIndicator.calculate(orderBook);
 
-          // ✅ Транслируем Order Book данные
+          // ✅ Транслируем ТОЛЬКО индикатор давления (содержит все данные)
           if (this.broadcastManager && this.broadcastManager.isActive()) {
-            const ratio = this.orderBookManager.getVolumeRatio();
-            if (ratio) {
-              this.broadcastManager.broadcast({
-                type: MessageType.ORDERBOOK,
-                symbol: orderBook.symbol,
-                data: {
-                  askVolume: ratio.askVolume,
-                  bidVolume: ratio.bidVolume,
-                  askPercent: ratio.askPercent,
-                  bidPercent: ratio.bidPercent,
-                  spread: this.orderBookManager.getSpread() || undefined,
-                  midPrice: this.orderBookManager.getMidPrice() || undefined,
-                },
-                timestamp: orderBook.timestamp,
-              });
-              console.log("  ✅ Order Book данные отправлены");
-            }
-
-            // Транслируем индикатор давления
             this.broadcastManager.broadcast({
               type: MessageType.INDICATOR,
               name: "orderbook_pressure",

@@ -99,9 +99,8 @@ export enum SubscriptionChannel {
   SYSTEM = "system", // Системные сообщения (автоматическая подписка, нельзя отписаться)
   LOGS = "logs", // Все логи
   TICKS = "ticks", // Тики
-  ORDERBOOK = "orderbook", // Order Book обновления
   BALANCE = "balance", // Балансы
-  INDICATORS = "indicators", // Индикаторы
+  INDICATORS = "indicators", // Индикаторы (включая orderbook_pressure)
 }
 
 /**
@@ -142,22 +141,6 @@ export interface TickMessage extends BaseMessage {
   symbol: string;
   price: number;
   volume: number;
-}
-
-/**
- * Сообщение с Order Book
- */
-export interface OrderBookMessage extends BaseMessage {
-  type: MessageType.ORDERBOOK;
-  symbol: string;
-  data: {
-    askVolume: number;
-    bidVolume: number;
-    askPercent: number;
-    bidPercent: number;
-    spread?: number;
-    midPrice?: number;
-  };
 }
 
 /**
@@ -274,7 +257,6 @@ export type ClientMessage =
   // Данные от сервера
   | LogMessage
   | TickMessage
-  | OrderBookMessage
   | BalanceMessage
   | IndicatorMessage; // ✅ Новое
 

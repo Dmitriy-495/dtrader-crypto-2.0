@@ -370,9 +370,6 @@ export class BroadcastManager {
       case MessageType.TICK:
         channel = SubscriptionChannel.TICKS;
         break;
-      case MessageType.ORDERBOOK:
-        channel = SubscriptionChannel.ORDERBOOK;
-        break;
       case MessageType.BALANCE:
         channel = SubscriptionChannel.BALANCE;
         break;
