@@ -1,0 +1,89 @@
+{
+  "strategy": {
+    "name": "TVP Strategy",
+    "description": "Tick-Volume-Pressure: комбинированная стратегия на основе трёх индикаторов",
+    "version": "1.0.0",
+    "enabled": true,
+    "symbol": "ETH_USDT",
+    "mode": "normal"
+  },
+  
+  "indicators": {
+    "tickSpeed": {
+      "windowMinutes": 1,
+      "alertThresholds": {
+        "low": 20,
+        "normal": 100,
+        "high": 300,
+        "extreme": 600
+      }
+    },
+    
+    "volumeConfirmation": {
+      "period": 20,
+      "volumeThreshold": 1.5,
+      "priceChangeThreshold": 0.1
+    },
+    
+    "orderBookPressure": {
+      "depthLevels": 10,
+      "weightedMode": true
+    }
+  },
+  
+  "rules": {
+    "conservative": {
+      "description": "Консервативный режим - только сильные подтверждённые сигналы",
+      "minConfirmations": 3,
+      "requireVolumeConfirmation": true,
+      "requireStrongSignals": true,
+      "allowedActivityLevels": ["NORMAL", "HIGH"],
+      "minVolumeRatio": 1.8,
+      "minPressureImbalance": 0.2
+    },
+    
+    "normal": {
+      "description": "Нормальный режим - баланс между надёжностью и частотой сигналов",
+      "minConfirmations": 2,
+      "requireVolumeConfirmation": true,
+      "requireStrongSignals": false,
+      "allowedActivityLevels": ["LOW", "NORMAL", "HIGH"],
+      "minVolumeRatio": 1.5,
+      "minPressureImbalance": 0.1
+    },
+    
+    "aggressive": {
+      "description": "Агрессивный режим - больше сигналов, выше риск",
+      "minConfirmations": 1,
+      "requireVolumeConfirmation": false,
+      "requireStrongSignals": false,
+      "allowedActivityLevels": ["LOW", "NORMAL", "HIGH", "EXTREME"],
+      "minVolumeRatio": 1.2,
+      "minPressureImbalance": 0.05
+    }
+  },
+  
+  "signalWeights": {
+    "description": "Веса индикаторов при принятии решения (сумма = 1.0)",
+    "volumeConfirmation": 0.4,
+    "orderBookPressure": 0.35,
+    "tickSpeed": 0.25
+  },
+  
+  "filters": {
+    "ignoreDeadMarket": true,
+    "ignoreNoVolume": true,
+    "ignoreExtremeVolatility": false,
+    "minTicksBeforeSignal": 100
+  },
+  
+  "comments": {
+    "mode": "Режимы: conservative | normal | aggressive",
+    "minConfirmations": "Минимальное количество подтверждающих индикаторов",
+    "requireVolumeConfirmation": "Обязательно подтверждение объёмом",
+    "requireStrongSignals": "Только STRONG_BUY/STRONG_SELL сигналы",
+    "allowedActivityLevels": "Разрешённые уровни активности рынка",
+    "minVolumeRatio": "Минимальное отношение объёма к среднему",
+    "minPressureImbalance": "Минимальный дисбаланс стакана для сигнала"
+  }
+}

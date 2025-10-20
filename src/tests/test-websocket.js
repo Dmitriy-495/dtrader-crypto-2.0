@@ -1,6 +1,6 @@
 const WebSocket = require("ws");
 
-const ws = new WebSocket("ws://176.123.160.174:8080");
+const ws = new WebSocket("ws:localhost:8080");
 
 let stats = {
   system: 0,
@@ -94,6 +94,19 @@ ws.on("message", (data) => {
         `📊 PRESSURE | ${d.direction} | BID: ${d.bidPercent.toFixed(
           1
         )}% | ASK: ${d.askPercent.toFixed(1)}% | OBI: ${d.imbalance.toFixed(3)}`
+      );
+    }
+
+    if (message.name === "volume_confirmation") {
+      const d = message.data;
+      const emoji =
+        d.signal === "STRONG_BUY" || d.signal === "STRONG_SELL" ? "💥" : "";
+      console.log(
+        `📊 VOLUME | ${d.signal} ${emoji} | Ratio: ${d.volumeRatio.toFixed(
+          2
+        )}x | Price: ${d.priceChange > 0 ? "+" : ""}${d.priceChange.toFixed(
+          2
+        )}% | ${d.isConfirmed ? "✅ CONFIRMED" : "⚪"}`
       );
     }
   }

@@ -13,7 +13,9 @@ import {
   OrderBookPressureIndicator,
   OrderBookPressureResult,
 } from "./indicators/OrderBookPressureIndicator";
-import { MessageType } from "./types";
+import { VolumeConfirmationIndicator } from "./indicators/VolumeConfirmationIndicator";
+import { TVPStrategy } from "./strategy/tvp/TVPStrategy";
+import { MessageType, Candle, Tick, SignalType } from "./types";
 
 // ============================================================================
 // ТИПЫ И ИНТЕРФЕЙСЫ
@@ -68,9 +70,20 @@ export class DTrader {
   // ✅ ИНДИКАТОРЫ
   private tickSpeedIndicator: TickSpeedIndicator;
   private obPressureIndicator: OrderBookPressureIndicator;
+  private volumeConfirmationIndicator: VolumeConfirmationIndicator;
   private previousOBPressure: OrderBookPressureResult | null = null;
   private tickCounter: number = 0;
   private obUpdateCounter: number = 0;
+
+  // ✅ СТРАТЕГИЯ
+  private strategy: TVPStrategy | null = null;
+  private strategyEnabled: boolean = false;
+
+  // ✅ ФОРМИРОВАНИЕ СВЕЧЕЙ
+  private currentCandle: Candle | null = null;
+  private candleHistory: Candle[] = [];
+  private maxCandleHistory: number = 200;
+  private candleInterval: number = 60000; // 1 минута в миллисекундах
 
   constructor(config: DTraderConfig) {
     this.gateio = config.gateio;
@@ -109,7 +122,25 @@ export class DTrader {
       weightedMode: true,
     });
 
-    console.log("✅ Индикаторы инициализированы: TickSpeed, OrderBookPressure");
+    this.volumeConfirmationIndicator = new VolumeConfirmationIndicator({
+      period: 20,
+      volumeThreshold: 1.5,
+      priceChangeThreshold: 0.1,
+    });
+
+    console.log(
+      "✅ Индикаторы инициализированы: TickSpeed, OrderBookPressure, VolumeConfirmation"
+    );
+
+    // ✅ Инициализируем стратегию TVP (опционально)
+    try {
+      this.strategy = new TVPStrategy();
+      this.strategyEnabled = true;
+      console.log("✅ Стратегия TVP инициализирована");
+    } catch (error: any) {
+      console.log("⚠️  Стратегия TVP не загружена:", error.message);
+      this.strategyEnabled = false;
+    }
   }
 
   // ==========================================================================
@@ -139,6 +170,11 @@ export class DTrader {
 
       this.state = EngineState.RUNNING;
       console.log("✅ Движок успешно запущен и работает\n");
+
+      // ✅ Запускаем стратегию
+      if (this.strategy && this.strategyEnabled) {
+        this.strategy.onStart();
+      }
     } catch (error: any) {
       this.state = EngineState.STOPPED;
       throw new Error(`Ошибка запуска движка: ${error.message}`);
@@ -172,6 +208,11 @@ export class DTrader {
 
     if (this.logger) {
       this.logger.stopIntercepting();
+    }
+
+    // ✅ Останавливаем стратегию
+    if (this.strategy && this.strategyEnabled) {
+      this.strategy.onStop();
     }
 
     this.state = EngineState.STOPPED;
@@ -353,16 +394,38 @@ export class DTrader {
       const ticker = message.result;
       const price = parseFloat(ticker.last);
       const volume = parseFloat(ticker.base_volume);
+      const timestamp = Date.now();
 
-      // Регистрируем тик в индикаторе
-      this.tickSpeedIndicator.addTick(Date.now());
+      // Регистрируем тик в индикаторах
+      this.tickSpeedIndicator.addTick(timestamp);
+      this.volumeConfirmationIndicator.addTick(price, volume, timestamp);
       this.tickCounter++;
 
-      // Каждые 20 тиков рассчитываем и транслируем скорость
+      // ✅ Формируем свечи и передаём тик в стратегию
+      if (this.strategy && this.strategyEnabled) {
+        const tick: Tick = {
+          symbol: ticker.currency_pair,
+          price: price,
+          volume: volume,
+          timestamp: timestamp,
+          high24h: parseFloat(ticker.high_24h) || price,
+          low24h: parseFloat(ticker.low_24h) || price,
+          changePercent: parseFloat(ticker.change_percentage) || 0,
+        };
+
+        // Передаём тик в стратегию
+        this.strategy.onTick(tick);
+
+        // Формируем свечу
+        this.updateCandle(tick);
+      }
+
+      // Каждые 20 тиков рассчитываем и транслируем индикаторы
       if (this.tickCounter % 20 === 0) {
         const tickSpeed = this.tickSpeedIndicator.calculate();
+        const volumeConfirmation = this.volumeConfirmationIndicator.calculate();
 
-        // Транслируем индикатор клиентам
+        // Транслируем tick_speed
         if (this.broadcastManager && this.broadcastManager.isActive()) {
           this.broadcastManager.broadcast({
             type: MessageType.INDICATOR,
@@ -370,6 +433,16 @@ export class DTrader {
             data: tickSpeed,
             timestamp: Date.now(),
           });
+
+          // Транслируем volume_confirmation если есть данные
+          if (volumeConfirmation) {
+            this.broadcastManager.broadcast({
+              type: MessageType.INDICATOR,
+              name: "volume_confirmation",
+              data: volumeConfirmation,
+              timestamp: Date.now(),
+            });
+          }
         }
       }
 
@@ -577,6 +650,72 @@ export class DTrader {
       this.ws.send(JSON.stringify(subscribeMessage));
     } catch (error: any) {
       console.error("❌ Ошибка подписки на Order Book:", error.message);
+    }
+  }
+
+  // ==========================================================================
+  // ФОРМИРОВАНИЕ СВЕЧЕЙ
+  // ==========================================================================
+
+  /**
+   * Обновляет текущую свечу или создаёт новую
+   */
+  private updateCandle(tick: Tick): void {
+    const candleStartTime =
+      Math.floor(tick.timestamp / this.candleInterval) * this.candleInterval;
+
+    // Если свеча ещё не создана или время новой свечи
+    if (
+      !this.currentCandle ||
+      this.currentCandle.timestamp !== candleStartTime
+    ) {
+      // Закрываем предыдущую свечу если есть
+      if (this.currentCandle) {
+        this.closeCandle(this.currentCandle);
+      }
+
+      // Создаём новую свечу
+      this.currentCandle = {
+        symbol: tick.symbol,
+        timestamp: candleStartTime,
+        open: tick.price,
+        high: tick.price,
+        low: tick.price,
+        close: tick.price,
+        volume: tick.volume,
+        interval: "1m",
+      };
+    } else {
+      // Обновляем текущую свечу
+      this.currentCandle.high = Math.max(this.currentCandle.high, tick.price);
+      this.currentCandle.low = Math.min(this.currentCandle.low, tick.price);
+      this.currentCandle.close = tick.price;
+      this.currentCandle.volume = tick.volume;
+    }
+  }
+
+  /**
+   * Закрывает свечу и передаёт в стратегию
+   */
+  private closeCandle(candle: Candle): void {
+    // Добавляем в историю
+    this.candleHistory.push(candle);
+
+    // Ограничиваем размер истории
+    if (this.candleHistory.length > this.maxCandleHistory) {
+      this.candleHistory.shift();
+    }
+
+    // Передаём в стратегию
+    if (this.strategy && this.strategyEnabled) {
+      const signal = this.strategy.onCandle(candle, this.candleHistory);
+
+      // Обрабатываем сигнал если есть
+      if (signal && signal.type !== SignalType.HOLD) {
+        console.log(`\n🎯 ТОРГОВЫЙ СИГНАЛ от TVP: ${signal.type}`);
+        console.log(`   ${signal.reason}`);
+        // TODO: Здесь будет логика исполнения ордеров
+      }
     }
   }
 
