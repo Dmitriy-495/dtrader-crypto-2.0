@@ -1,6 +1,6 @@
 const WebSocket = require("ws");
 
-const ws = new WebSocket("ws:localhost:8080");
+const ws = new WebSocket("ws:176.123.160.174:8080");
 
 let stats = {
   system: 0,
