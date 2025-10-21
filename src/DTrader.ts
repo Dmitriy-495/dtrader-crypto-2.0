@@ -401,6 +401,16 @@ export class DTrader {
       this.volumeConfirmationIndicator.addTick(price, volume, timestamp);
       this.tickCounter++;
 
+      // ✅ Логируем каждый 10-й тик
+      if (this.tickCounter % 10 === 0) {
+        const timeISO = new Date(timestamp).toISOString();
+        console.log(
+          `📈 Тик #${this.tickCounter} | ${
+            ticker.currency_pair
+          } @ ${price.toFixed(2)} | Vol: ${volume.toFixed(2)} | [${timeISO}]`
+        );
+      }
+
       // ✅ Формируем свечи и передаём тик в стратегию
       if (this.strategy && this.strategyEnabled) {
         const tick: Tick = {
@@ -424,6 +434,31 @@ export class DTrader {
       if (this.tickCounter % 20 === 0) {
         const tickSpeed = this.tickSpeedIndicator.calculate();
         const volumeConfirmation = this.volumeConfirmationIndicator.calculate();
+
+        // ✅ Логируем состояние индикаторов
+        if (tickSpeed) {
+          console.log(
+            `⚡ TickSpeed: ${tickSpeed.ticksPerMinute} t/min | ${
+              tickSpeed.activityLevel
+            } | Trend: ${tickSpeed.trend}${
+              tickSpeed.isSpike ? " 💥 SPIKE" : ""
+            }`
+          );
+        }
+
+        if (volumeConfirmation) {
+          console.log(
+            `📊 VolumeConf: ${
+              volumeConfirmation.signal
+            } | Ratio: ${volumeConfirmation.volumeRatio.toFixed(
+              2
+            )}x | Price Δ: ${
+              volumeConfirmation.priceChange > 0 ? "+" : ""
+            }${volumeConfirmation.priceChange.toFixed(2)}% | ${
+              volumeConfirmation.isConfirmed ? "✅" : "⚪"
+            }`
+          );
+        }
 
         // Транслируем tick_speed
         if (this.broadcastManager && this.broadcastManager.isActive()) {
@@ -641,9 +676,10 @@ export class DTrader {
     const symbol = this.orderBookManager.getOrderBook()?.symbol || "ETH_USDT";
     console.log(`📡 Подписка на обновления Order Book для ${symbol}...`);
 
+    // ✅ Изменяем с 100ms на 1000ms для снижения нагрузки
     const subscribeMessage = this.gateio.createOrderBookUpdateSubscription(
       symbol,
-      "100ms"
+      "1000ms"
     );
 
     try {
@@ -705,6 +741,20 @@ export class DTrader {
     if (this.candleHistory.length > this.maxCandleHistory) {
       this.candleHistory.shift();
     }
+
+    // ✅ Логируем закрытие свечи
+    const timeISO = new Date(candle.timestamp).toISOString();
+    console.log(`\n🕯️  Свеча закрыта [${timeISO}]`);
+    console.log(
+      `   ${candle.symbol} | O: ${candle.open.toFixed(
+        2
+      )} | H: ${candle.high.toFixed(2)} | L: ${candle.low.toFixed(
+        2
+      )} | C: ${candle.close.toFixed(2)} | V: ${candle.volume.toFixed(2)}`
+    );
+    console.log(
+      `   История свечей: ${this.candleHistory.length}/${this.maxCandleHistory}`
+    );
 
     // Передаём в стратегию
     if (this.strategy && this.strategyEnabled) {
